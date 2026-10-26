@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"slices"
+	"sync"
 
 	"github.com/crizah/KV/proxy/services/health"
 	"github.com/crizah/KV/proxy/services/router"
@@ -14,12 +15,20 @@ import (
 	"github.com/daulet/tokenizers"
 )
 
+// Config holds the per-model settings the proxy needs to tokenise and hash
+// exactly like the SGLang servers do.
+type Config struct {
+	Model         Model
+	PageSize      int    // must equal the servers' --page-size
+	TokenizerPath string // path to the model's tokenizer.json (the full fast tokenizer file)
+}
+
 type RequestService struct {
 	model       Model
 	input       string
 	pageSize    int
 	routeTable  *router.RouteTable
-	tokeniser   *tokenizers.Tokenizer
+	tokeniser   *sharedTokenizer
 	healthTable *health.HealthTable
 }
 
@@ -29,14 +38,44 @@ const (
 	QWEN306B Model = "Qwen3-0.6B"
 )
 
-func NewRequestService(model Model, input string, table *router.RouteTable, n *health.HealthTable) (*RequestService, error) {
-	// TODO: 16 is a default for pageSize. MAKE SURE THE SERVER AND PROXY USE THE SAME NUMBER FOR THIS
-	path := fmt.Sprintf("../configs/%s/tokenizer_config.json", model)
+// sharedTokenizer wraps a tokenizer so concurrent requests can share one
+// instance; Encode calls are serialized per tokenizer.
+type sharedTokenizer struct {
+	mx sync.Mutex
+	tk *tokenizers.Tokenizer
+}
+
+// tokenizers are expensive to load, so they are created once per path and
+// shared by every request
+var tokenizerCache = struct {
+	mx sync.Mutex
+	m  map[string]*sharedTokenizer
+}{m: make(map[string]*sharedTokenizer)}
+
+func getTokenizer(path string) (*sharedTokenizer, error) {
+	tokenizerCache.mx.Lock()
+	defer tokenizerCache.mx.Unlock()
+	if st, ok := tokenizerCache.m[path]; ok {
+		return st, nil
+	}
 	tk, err := tokenizers.FromFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return &RequestService{model: model, input: input, pageSize: 16, routeTable: table, tokeniser: tk, healthTable: n}, nil
+	st := &sharedTokenizer{tk: tk}
+	tokenizerCache.m[path] = st
+	return st, nil
+}
+
+func NewRequestService(cfg Config, input string, table *router.RouteTable, n *health.HealthTable) (*RequestService, error) {
+	if cfg.PageSize <= 0 {
+		return nil, fmt.Errorf("pageSize must be > 0, got %d", cfg.PageSize)
+	}
+	tk, err := getTokenizer(cfg.TokenizerPath)
+	if err != nil {
+		return nil, err
+	}
+	return &RequestService{model: cfg.Model, input: input, pageSize: cfg.PageSize, routeTable: table, tokeniser: tk, healthTable: n}, nil
 }
 
 func (req *RequestService) HandleReq(ctx context.Context) error {
@@ -80,15 +119,16 @@ func (req *RequestService) router(ctx context.Context, R *hasherRes) *routerRes 
 		var unhealthyNodes []string
 		// iterate in sorted order
 		var healthyN []string
-		for n, _ := range R.nodes {
+		for n := range R.nodes {
 			// for every node that we do want, check if its healthy
 			_, ok := healthyNodes.NodesMap[n]
 			if !ok {
 				// the node we want is not healthy, track it as unhealthy node
 				unhealthyNodes = append(unhealthyNodes, n)
+			} else {
+				// otherwise, we store it as heakthy node
+				healthyN = append(healthyN, n)
 			}
-			// otherwise, we store it as heakthy node
-			healthyN = append(healthyN, n)
 		}
 
 		// sort unhealthyNodes and healthN based on healthyNodes.SortedNodes
@@ -131,31 +171,30 @@ func sortByRef(a []string, b []health.NodeInfo) {
 }
 
 func (req *RequestService) tokenise() ([]uint32, error) {
-	// i dont think the tokeniser depends on order
-	// so should e use gorutines here for a very large prompt?
-	// because goroutines can be overkill just because of the setup
-	// TODO: move this tokeniser intialissation to startup
-
-	defer req.tokeniser.Close()
-	encoded, _ := req.tokeniser.Encode(req.input, true) // SGLang sets this as true, we want to replicate
+	// the tokenizer is shared across requests, so Encode calls are serialized
+	req.tokeniser.mx.Lock()
+	defer req.tokeniser.mx.Unlock()
+	encoded, _, err := req.tokeniser.tk.EncodeErr(req.input, true) // SGLang sets this as true, we want to replicate
+	if err != nil {
+		return nil, err
+	}
 	return encoded, nil
 }
 
 type hasherRes struct {
 	exists bool
 	nodes  map[string]struct{}
+	// hashes and matched are kept ONLY for the transfer-vs-recompute threshold
+	// experiment. they are NOT sent to the node.
+	hashes  []int64
+	matched int
 }
 
 func (req *RequestService) hasher(ctx context.Context, tokens []uint32, priorDigest []byte) (*hasherRes, error) {
 	// int(SHA256(parent_digest + tokens)[:16], 16) reinterpreted as int64
-	// NOTE: pageSize defaults to 16, set is as that and make sure its the same on both server and proxy. maybe we can have an event
-	// at startup that gives us this
+	// NOTE: pageSize comes from config and must be the same on both server and proxy
 	//
 	// return false if we didnt find a cache hit
-
-	if req.pageSize <= 0 {
-		panic("pageSize must be > 0")
-	}
 
 	numPages := len(tokens) / req.pageSize
 	hashes := make([]int64, 0, numPages)
@@ -165,11 +204,12 @@ func (req *RequestService) hasher(ctx context.Context, tokens []uint32, priorDig
 	N := make(map[string]struct{})
 
 	for p := 0; p < numPages; p++ {
-		// TODO: also store the count/pages of blocks matched for when we do the caliberation of
+		// TODO: use the count/pages of blocks matched for the caliberation of
 		// "if below n pages matched, dont bother with the transfer, recomputation is faster"
-		// also, in a future design (never happening lol) we could store all intermediary matched hashes as
-		// well and on a failure node, we could take into account these smaller hashes (if the exist on other nodes)
-		// while caculating the best node to send this request tokens
+		// also, in a future design we could store all intermediary matched hashes as
+		// well and on a failure node, we could take into account these smaller hashes
+		// (if they exist on other nodes) while caculating the best node to send this
+		// request to
 
 		page := tokens[p*req.pageSize : (p+1)*req.pageSize]
 		digest = hashOnePage(page, digest)
@@ -189,7 +229,7 @@ func (req *RequestService) hasher(ctx context.Context, tokens []uint32, priorDig
 				return &hasherRes{exists: false}, nil
 			}
 			// otherwise, we had found one, so we return the previosuly set nodes
-			return &hasherRes{exists: true, nodes: N}, nil
+			return &hasherRes{exists: true, nodes: N, hashes: hashes, matched: len(hashes)}, nil
 		}
 
 		// otherwise, cache hit, update vars
@@ -198,7 +238,7 @@ func (req *RequestService) hasher(ctx context.Context, tokens []uint32, priorDig
 		hashes = append(hashes, bigInd)
 	}
 
-	return &hasherRes{exists: true, nodes: N}, nil
+	return &hasherRes{exists: true, nodes: N, hashes: hashes, matched: len(hashes)}, nil
 }
 
 func hashOnePage(tokens []uint32, priorDigest []byte) []byte {

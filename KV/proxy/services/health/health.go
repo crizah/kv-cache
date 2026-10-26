@@ -29,8 +29,14 @@ func NewHealthTable(nodes []string) *HealthTable {
 	return &HealthTable{table: t, nodes: nodes}
 }
 
-func (table *HealthTable) CheckHealth() {
-	// runs as cron, listens and updates table
+func (table *HealthTable) CheckHealth(ctx context.Context) {
+	// runs in the background, listens and updates table
+	//
+	// Design: subscribe to each node's load-publish ZMQ socket (LoadStat:
+	// num_running_reqs, num_waiting_reqs, num_tokens, max_total_num_tokens).
+	// alive  = saw a stat within the last N seconds
+	// loaded = alive but over the configured load threshold
+	// GetHealthyNodes sorts by load score, e.g. running + w*waiting.
 
 }
 func (table *HealthTable) GetHealthyNodes(ctx context.Context) HealthyNodes {
