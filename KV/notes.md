@@ -21,7 +21,7 @@ Running record of design decisions, open questions, and next steps. Update this 
 ## Waiting on user / SGLang docs
 
 - Exact `--kv-events-config` flag and values, and the load-publish endpoint flag name.
-- LoadStat payload layout (does it carry a timestamp?).
+- LoadStat payload layout. The decoder in `proxy/services/health/health.go` (`decodeLoadStat`) currently assumes `["LoadStat", num_running_reqs, num_waiting_reqs, num_tokens, max_total_num_tokens, attn_dp_rank, ...]` over 3 ZMQ frames `[topic][seq][msgpack]`. One function to fix if the docs say otherwise.
 - Tuned values for `--mem-fraction-static`, `--hicache-ratio` / `--hicache-size`.
 - Page pinning while a peer is reading, plus pull timeout -> recompute fallback.
 - How node B obtains the producer's NIXL agent metadata and key->pointer map in real deployment. The exp used shared files in `meta_dir`; over the network this needs a transport. Proxy headers will carry the producer identity, but the NIXL handshake path is undecided.
@@ -38,3 +38,5 @@ Running record of design decisions, open questions, and next steps. Update this 
 ## Change log
 
 - 2026-10-26: Fixed router bugs (nil inner map panic, doubled hash slice, BlockRemoved never removing, AllBlocksCleared locking the wrong mutex and clearing the wrong map, Listen returning after one event, seq never stored). Tokenizer is now created once and shared. Added `config.json` + loader and wired `main.go`.
+- 2026-10-26: Health service implemented. Per-node ZMQ listeners (same pattern as the KV listener) feed one channel into `CheckHealth`. Status is an enum: unhealthy (error or >5min stale) / loaded (alive, over threshold) / healthy. Load score = running + waiting_weight * waiting, threshold from `config.json` (`health` section). `GetHealthyNodes` marks stale entries unhealthy while reading, then returns every alive node: `SortedNodes` (healthy + loaded, least loaded first, so healthy are always up front) and `NodesMap` (`map[string]Status` — a missing node is unhealthy).
+- 2026-10-26: Router decision updated for the new health snapshot. Cache hit on a healthy holder -> route straight to it. Hit only on loaded holders -> route to the least loaded healthy node with `nodeP` = the least loaded loaded holder (pull path). All holders unhealthy -> treat as a cache miss (a dead node serves no bytes). No healthy node alive at all -> no route (retry TODO stands).

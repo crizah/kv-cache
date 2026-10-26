@@ -30,7 +30,7 @@ func main() {
 	go routeTable.Listen(ctx)
 
 	// health table, kept up to date in the background by the nodes' load publisher
-	healthTable := health.NewHealthTable(cfg.nodeIDs())
+	healthTable := health.NewHealthTable(cfg.healthNodes(), cfg.healthConfig())
 	go healthTable.CheckHealth(ctx)
 
 	mux := http.NewServeMux()

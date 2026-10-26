@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/crizah/KV/proxy/services/health"
 	"github.com/crizah/KV/proxy/services/router"
 )
 
@@ -15,12 +16,18 @@ type NodeConfig struct {
 	Load     string `json:"load"`      // host:port of the node's load-publish socket
 }
 
+type HealthConfig struct {
+	WaitingWeight   float64 `json:"waiting_weight"`   // weight of queued requests in the load score
+	LoadedThreshold float64 `json:"loaded_threshold"` // load score above which a node is marked loaded
+}
+
 type Config struct {
 	Model         string       `json:"model"`
 	PageSize      int          `json:"page_size"` // must equal the servers' --page-size
 	ListenAddr    string       `json:"listen_addr"`
 	TokenizerPath string       `json:"tokenizer_path"` // full fast tokenizer file (tokenizer.json), not tokenizer_config.json
 	Nodes         []NodeConfig `json:"nodes"`
+	Health        HealthConfig `json:"health"`
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -38,6 +45,12 @@ func loadConfig(path string) (*Config, error) {
 	if len(cfg.Nodes) == 0 {
 		return nil, fmt.Errorf("config must list at least one node")
 	}
+	if cfg.Health.WaitingWeight == 0 {
+		cfg.Health.WaitingWeight = 1.0
+	}
+	if cfg.Health.LoadedThreshold <= 0 {
+		cfg.Health.LoadedThreshold = 8
+	}
 	return &cfg, nil
 }
 
@@ -49,10 +62,17 @@ func (cfg *Config) routerNodes() []router.Node {
 	return nodes
 }
 
-func (cfg *Config) nodeIDs() []string {
-	ids := make([]string, 0, len(cfg.Nodes))
+func (cfg *Config) healthNodes() []health.Node {
+	nodes := make([]health.Node, 0, len(cfg.Nodes))
 	for _, n := range cfg.Nodes {
-		ids = append(ids, n.ID)
+		nodes = append(nodes, health.Node{ID: n.ID, LoadAddr: n.Load})
 	}
-	return ids
+	return nodes
+}
+
+func (cfg *Config) healthConfig() health.Config {
+	return health.Config{
+		WaitingWeight:   cfg.Health.WaitingWeight,
+		LoadedThreshold: cfg.Health.LoadedThreshold,
+	}
 }

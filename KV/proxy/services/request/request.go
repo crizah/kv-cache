@@ -108,47 +108,66 @@ type routerRes struct {
 }
 
 func (req *RequestService) router(ctx context.Context, R *hasherRes) *routerRes {
-	// read all the healthy nodes we can use
-	healthyNodes := req.healthTable.GetHealthyNodes(ctx)
-	if len(healthyNodes.SortedNodes) == 0 {
-		// whelp
+	// read all the alive nodes we can use
+	available := req.healthTable.GetHealthyNodes(ctx)
+	if len(available.SortedNodes) == 0 {
+		// whelp, what do u want me to do here lol
+		// TODO: do smth :sob
 		return nil
 	}
-	if R.exists {
-		// cache exists
-		var unhealthyNodes []string
-		// iterate in sorted order
-		var healthyN []string
-		for n := range R.nodes {
-			// for every node that we do want, check if its healthy
-			_, ok := healthyNodes.NodesMap[n]
-			if !ok {
-				// the node we want is not healthy, track it as unhealthy node
-				unhealthyNodes = append(unhealthyNodes, n)
-			} else {
-				// otherwise, we store it as heakthy node
-				healthyN = append(healthyN, n)
-			}
+
+	// the first healthy node in the sorted array is our default destination.
+	// loaded nodes are valid pull sources but we dont route fresh work to them.
+	destination := ""
+	for _, n := range available.SortedNodes {
+		if n.Status == health.StatusHealthy {
+			destination = n.IP
+			break
 		}
-
-		// sort unhealthyNodes and healthN based on healthyNodes.SortedNodes
-		sortByRef(unhealthyNodes, healthyNodes.SortedNodes)
-		sortByRef(healthyN, healthyNodes.SortedNodes)
-
-		if len(healthyN) == 0 {
-			// we didnt find any that we wanted, so we try to choose from unhealthy
-			if len(unhealthyNodes) == 0 {
-				// whelp, we just choose a random one from healthyNodea
-				return &routerRes{nodeD: healthyNodes.SortedNodes[0].IP, nodeP: "", metaData: []string{}} // TODO: get metadata we need
-			}
-			return &routerRes{nodeD: healthyNodes.SortedNodes[0].IP, nodeP: unhealthyNodes[0], metaData: []string{}} // TODO: get metadata we need
-		}
-
-		// otherwise, we just get the healthyN we did find
-		return &routerRes{nodeD: healthyN[0], nodeP: "", metaData: []string{}} // TODO: get metadata we need
-	} else {
-		return &routerRes{nodeD: healthyNodes.SortedNodes[0].IP, nodeP: "", metaData: []string{}} // TODO: get whatever metadata we need here
 	}
+	if destination == "" {
+		// every alive node is loaded, nothing worth routing to
+		// TODO: add a retry with a buffer here
+		return nil
+	}
+
+	if !R.exists {
+		// cache miss everywhere: send to the healthiest node, no pull
+		return &routerRes{nodeD: destination, nodeP: "", metaData: []string{}} // TODO: get metadata we need
+	}
+
+	// cache hit somewhere. sort the holders by their health status
+	var healthyHolders []string
+	var loadedHolders []string
+	for holder := range R.nodes {
+		status, ok := available.NodesMap[holder]
+		if !ok {
+			// unhealthy: not in the map. cant route to it AND cant pull from
+			// it either, a dead node serves no bytes
+			continue
+		}
+		if status == health.StatusHealthy {
+			healthyHolders = append(healthyHolders, holder)
+		} else {
+			loadedHolders = append(loadedHolders, holder)
+		}
+	}
+
+	// order the holders by their position in the sorted array
+	sortByRef(healthyHolders, available.SortedNodes)
+	sortByRef(loadedHolders, available.SortedNodes)
+
+	if len(healthyHolders) > 0 {
+		// a healthy node already has the cache: send straight to it, no pull
+		return &routerRes{nodeD: healthyHolders[0], nodeP: "", metaData: []string{}} // TODO: get metadata we need
+	}
+	if len(loadedHolders) > 0 {
+		// no healthy holder, but a loaded one still serves the bytes:
+		// send to the healthiest node and have it pull from the least loaded holder
+		return &routerRes{nodeD: destination, nodeP: loadedHolders[0], metaData: []string{}} // TODO: get metadata we need
+	}
+	// every holder is unhealthy: treat it as a cache miss
+	return &routerRes{nodeD: destination, nodeP: "", metaData: []string{}} // TODO: get metadata we need
 }
 
 func getRank(b []health.NodeInfo, val string) int {
