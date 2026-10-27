@@ -18,18 +18,20 @@ import (
 // Config holds the per-model settings the proxy needs to tokenise and hash
 // exactly like the SGLang servers do.
 type Config struct {
-	Model         Model
-	PageSize      int    // must equal the servers' --page-size
-	TokenizerPath string // path to the model's tokenizer.json (the full fast tokenizer file)
+	Model               Model
+	PageSize            int    // must equal the servers' --page-size
+	TokenizerPath       string // path to the model's tokenizer.json (the full fast tokenizer file)
+	PullThresholdTokens int    // matched prefix (tokens) at/above which a pull beats recompute; 0 means no threshold
 }
 
 type RequestService struct {
-	model       Model
-	input       string
-	pageSize    int
-	routeTable  *router.RouteTable
-	tokeniser   *sharedTokenizer
-	healthTable *health.HealthTable
+	model               Model
+	input               string
+	pageSize            int
+	pullThresholdTokens int
+	routeTable          *router.RouteTable
+	tokeniser           *sharedTokenizer
+	healthTable         *health.HealthTable
 }
 
 type Model string
@@ -71,11 +73,22 @@ func NewRequestService(cfg Config, input string, table *router.RouteTable, n *he
 	if cfg.PageSize <= 0 {
 		return nil, fmt.Errorf("pageSize must be > 0, got %d", cfg.PageSize)
 	}
+	if cfg.PullThresholdTokens < 0 {
+		return nil, fmt.Errorf("pullThresholdTokens must be >= 0, got %d", cfg.PullThresholdTokens)
+	}
 	tk, err := getTokenizer(cfg.TokenizerPath)
 	if err != nil {
 		return nil, err
 	}
-	return &RequestService{model: cfg.Model, input: input, pageSize: cfg.PageSize, routeTable: table, tokeniser: tk, healthTable: n}, nil
+	return &RequestService{
+		model:               cfg.Model,
+		input:               input,
+		pageSize:            cfg.PageSize,
+		pullThresholdTokens: cfg.PullThresholdTokens,
+		routeTable:          table,
+		tokeniser:           tk,
+		healthTable:         n,
+	}, nil
 }
 
 func (req *RequestService) HandleReq(ctx context.Context) error {
@@ -161,13 +174,21 @@ func (req *RequestService) router(ctx context.Context, R *hasherRes) *routerRes 
 		// a healthy node already has the cache: send straight to it, no pull
 		return &routerRes{nodeD: healthyHolders[0], nodeP: "", metaData: []string{}} // TODO: get metadata we need
 	}
-	if len(loadedHolders) > 0 {
-		// no healthy holder, but a loaded one still serves the bytes:
+	if len(loadedHolders) > 0 && req.pullWorthIt(R.matched) {
+		// no healthy holder, but the matched prefix is long enough that pulling
+		// from a loaded holder beats recomputing it on the destination:
 		// send to the healthiest node and have it pull from the least loaded holder
 		return &routerRes{nodeD: destination, nodeP: loadedHolders[0], metaData: []string{}} // TODO: get metadata we need
 	}
-	// every holder is unhealthy: treat it as a cache miss
+	// no holder we should pull from: recompute on the healthiest node
 	return &routerRes{nodeD: destination, nodeP: "", metaData: []string{}} // TODO: get metadata we need
+}
+
+// pullWorthIt reports whether a matched prefix of matchedPages pages is long
+// enough that pulling it across nodes beats recomputing it on the destination.
+// The break-even length comes from exp-2 and is a per-model config value.
+func (req *RequestService) pullWorthIt(matchedPages int) bool {
+	return matchedPages*req.pageSize >= req.pullThresholdTokens
 }
 
 func getRank(b []health.NodeInfo, val string) int {

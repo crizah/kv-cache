@@ -1,8 +1,18 @@
 {
-  "model": "Qwen3-0.6B",
-  "page_size": 64,
+  "model": "Qwen3-4B",
+  "models": {
+    "Qwen3-4B": {
+      "page_size": 64,
+      "tokenizer_path": "configs/Qwen3-4B/tokenizer.json",
+      "pull_threshold_tokens": 11000
+    },
+    "Qwen3-0.6B": {
+      "page_size": 64,
+      "tokenizer_path": "configs/Qwen3-0.6B/tokenizer.json",
+      "pull_threshold_tokens": 50000
+    }
+  },
   "listen_addr": ":8080",
-  "tokenizer_path": "configs/Qwen3-0.6B/tokenizer.json",
   "nodes": [
     { "id": "A", "http": "127.0.0.1:30000", "kv_events": "127.0.0.1:5557", "load": "127.0.0.1:6000" },
     { "id": "B", "http": "127.0.0.1:30001", "kv_events": "127.0.0.1:5559", "load": "127.0.0.1:6001" }

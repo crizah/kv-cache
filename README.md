@@ -287,3 +287,6 @@ one model, different lengths of caches, measured time comparison between cache t
 | 4096 | recompute (6.57x) | recompute (1.37x) | pull (1.40x) | pull (3.06x) | pull (7.63x) |
 | 8192 | recompute (5.63x) | recompute (1.17x) | pull (1.64x) | pull (3.62x) | pull (9.18x) |
 | 16384 | recompute (4.46x) | pull (1.08x) | pull (2.07x) | pull (4.60x) | pull (11.77x) |
+
+
+our config values rae based on this particular hardware and we will run our extire suite of exp on this hardware itself

@@ -8,6 +8,7 @@ Running record of design decisions, open questions, and next steps. Update this 
 - **Route table reads check both tiers.** `ReadCache` checks the CPU map, then the GPU map. A hash is a miss only if absent from both. Kept as-is.
 - **Health comes from SGLang's load publisher** (ZMQ), not an HTTP `/health` endpoint. Liveness and load are separate signals: a node can be alive but too loaded to route to, and a dead node is never a valid pull source.
 - **Matched hashes stay internal.** The proxy keeps the matched hash chain and count only for the transfer-vs-recompute threshold experiment. Nothing extra is sent to node B beyond the agreed headers.
+- **Pull threshold is per model.** `pull_threshold_tokens` sits with `page_size` and `tokenizer_path` under `config.json`'s `models` map, selected by `model`. A cross-node pull only happens when the matched prefix is at least that many tokens; below it the proxy sends to the healthiest node and lets it recompute. Qwen3-4B = 11000 tokens from exp-2. `0` disables the threshold (always pull).
 - **Nuanced multi-level hash matching** (using intermediate matched hashes when the primary node is unhealthy) is a v2 feature.
 - **Chat templates are out of scope.** Proxy accepts raw prompts only (`/generate`, `/v1/completions`). Recorded as a limitation.
 - **Page size is a universal config** (`proxy/config.json`), must equal SGLang's `--page-size` on every node.

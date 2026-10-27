@@ -21,13 +21,21 @@ type HealthConfig struct {
 	LoadedThreshold float64 `json:"loaded_threshold"` // load score above which a node is marked loaded
 }
 
+// ModelConfig holds the settings that depend on the model. Page size and
+// tokenizer differ per model, and so does the transfer-vs-recompute
+// break-even point measured in exp-2.
+type ModelConfig struct {
+	PageSize            int    `json:"page_size"`             // must equal the servers' --page-size
+	TokenizerPath       string `json:"tokenizer_path"`        // full fast tokenizer file (tokenizer.json), not tokenizer_config.json
+	PullThresholdTokens int    `json:"pull_threshold_tokens"` // matched prefix (tokens) at/above which a cross-node pull beats recompute; 0 means no threshold
+}
+
 type Config struct {
-	Model         string       `json:"model"`
-	PageSize      int          `json:"page_size"` // must equal the servers' --page-size
-	ListenAddr    string       `json:"listen_addr"`
-	TokenizerPath string       `json:"tokenizer_path"` // full fast tokenizer file (tokenizer.json), not tokenizer_config.json
-	Nodes         []NodeConfig `json:"nodes"`
-	Health        HealthConfig `json:"health"`
+	Model      string                 `json:"model"` // active model, must be a key in models
+	Models     map[string]ModelConfig `json:"models"`
+	ListenAddr string                 `json:"listen_addr"`
+	Nodes      []NodeConfig           `json:"nodes"`
+	Health     HealthConfig           `json:"health"`
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -39,8 +47,18 @@ func loadConfig(path string) (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
-	if cfg.PageSize <= 0 {
-		return nil, fmt.Errorf("page_size must be > 0, got %d", cfg.PageSize)
+	model, ok := cfg.Models[cfg.Model]
+	if !ok {
+		return nil, fmt.Errorf("model %q is not defined in models", cfg.Model)
+	}
+	if model.PageSize <= 0 {
+		return nil, fmt.Errorf("model %q: page_size must be > 0, got %d", cfg.Model, model.PageSize)
+	}
+	if model.TokenizerPath == "" {
+		return nil, fmt.Errorf("model %q: tokenizer_path is required", cfg.Model)
+	}
+	if model.PullThresholdTokens < 0 {
+		return nil, fmt.Errorf("model %q: pull_threshold_tokens must be >= 0, got %d", cfg.Model, model.PullThresholdTokens)
 	}
 	if len(cfg.Nodes) == 0 {
 		return nil, fmt.Errorf("config must list at least one node")
@@ -52,6 +70,11 @@ func loadConfig(path string) (*Config, error) {
 		cfg.Health.LoadedThreshold = 8
 	}
 	return &cfg, nil
+}
+
+// activeModel returns the settings for the model selected by cfg.Model.
+func (cfg *Config) activeModel() ModelConfig {
+	return cfg.Models[cfg.Model]
 }
 
 func (cfg *Config) routerNodes() []router.Node {
