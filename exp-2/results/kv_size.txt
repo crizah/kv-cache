@@ -1,0 +1,4 @@
+Qwen/Qwen3-4B: layers=36 kv_heads=8 head_dim=128
+bytes_per_token = 2 x 36 x 8 x 128 x 2 = 147456
+page_bytes (64 tok) = 9437184
+one K or V block per page (page_bytes/2) = 4718592

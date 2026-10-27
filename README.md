@@ -104,17 +104,17 @@ args are name, gpu, port, peer
 ### alr for the actual load balancer
 components
 - route table (this will need to have {hash, [node_ips]})
-We are gonna keep this as a in memory thing i aint doing allat
+We are gonna keep this as a in memory thing i aint doing allat :check
 
 - the heartbeat moniter (i wonder if there is an existing library taht takes care of the boilr plate code for me, this stuff is pretty standard)
 okay there is Gin Proxy but knowing Gin, NUH HUH
 eh ukw we can write it ourselves
 i think i can just have the agent expose a /health endpoint
-and i think we should also store this information in memory
+and i think we should also store this information in memory :check
 
-- the cache evictor (subscribes to the nodes' ZMQ sockets)
+- the cache evictor (subscribes to the nodes' ZMQ sockets) :check
 
-- the tokeniser and hasher (ts needs to be lightweight) to tokenise and hash incoming requests (NOTE: make sure the hashers used are uniform throughout)
+- the tokeniser and hasher (ts needs to be lightweight) to tokenise and hash incoming requests (NOTE: make sure the hashers used are uniform throughout) :check
 
 - the actual routing logic (this will be caliberated to the results of "break point on prefill length where trasnfer becoumes cheaper than recomputation (altough, my results will be driven my a model and will heavily depend on the model size but what are you gonna do))
 user req -> tokenise -> hash prefix wise based on SGLangs block size (64 i think?), if the any hash doesnt exist, send to the best node (i think just round robin for this or last used?) -> if hashes do exist, match largest prefix hash to the node ip -> if node is chilling (have this thershold be configurable), send it to her -> if the node is not chilling, find one that is chilling -> send to him with headers {hash, producer_ip, block_id} and such -> the agent then takes care of the rest
@@ -238,3 +238,52 @@ obv we wont be able to make this super sophisticated to survive actual productio
 - and have a startup script i can just run to save on costs
 - once we get out agent and proxy working, we can carry out the experiment to get the sweet number. will also need more CPU ram so i can use a larger model
 (like 100B+ lets see)
+
+also NOTE: this is NOT tested on hybrid models (like Qwen3.8 27B), i dont know if the concept works there and i dont want to test it for this run man
+
+
+sweep experiment done on:
+1x RTX 3090
+
+NOTE: from next time, launch an intance that has the model installed already
+
+okay, so the instance situation for the actual experiment will not work i think lol
+vast ai doesnt honour tailscale and with aws, the instances are way too far away.
+
+in a real world setting u would obviously have this shit be in a cluster but alas
+
+
+okay we fucked around a tonne
+did one more test
+exp-2 (not exp2 fails because tailscale cant be setup on vast ai) ran for Qwen3-4B to get the numbers for our golden number (granted, these arent over the network, local host to local host)
+
+### setup:
+one model, different lengths of caches, measured time comparison between cache tarnsfer latency and recomputation latency
+
+- Break-even results
+
+| Prefix (tokens) | KV (MB) | Recompute saved (ms) | Break-even link (Gbps) | Pull on loopback (ms) | Loopback pull beats recompute |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 1024 | 151 | 142.9 | 9.54 | 204.0 | no |
+| 4096 | 604 | 742.8 | 6.97 | 909.8 | no |
+| 8192 | 1208 | 1734.2 | 5.89 | 1581.7 | yes (1.10x) |
+| 16384 | 2416 | 4377.3 | 4.60 | 3119.7 | yes (1.40x) |
+
+
+- Measured components (medians)
+
+| Prefix | Recompute TTFT (ms) | NIXL read (ms) | NIXL read (Gbps) | Host-to-GPU (ms) |
+| :--- | :--- | :--- | :--- | :--- |
+| 1024 | 177.0 | 187.7 | 6.4 | 11.3 |
+| 4096 | 776.8 | 860.7 | 5.6 | 44.1 |
+| 8192 | 1768.3 | 1489.4 | 6.5 | 87.3 |
+| 16384 | 4411.4 | 2941.0 | 6.6 | 173.6 |
+
+- Recompute TTFT at other lengths: 128 tokens, 34.1 ms; 512, 92.2 ms; 2048, 362.2 ms. Recompute speed is about 5,273 tokens/s at 4096 and 4,633 at 8192. Modeled links (the winner, then its speedup)
+
+| Prefix | 1 Gbps | 5 Gbps | 10 Gbps | 25 Gbps | 100 Gbps |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 1024 | recompute (8.57x) | recompute (1.80x) | pull (1.04x) | pull (2.21x) | pull (5.03x) |
+| 4096 | recompute (6.57x) | recompute (1.37x) | pull (1.40x) | pull (3.06x) | pull (7.63x) |
+| 8192 | recompute (5.63x) | recompute (1.17x) | pull (1.64x) | pull (3.62x) | pull (9.18x) |
+| 16384 | recompute (4.46x) | pull (1.08x) | pull (2.07x) | pull (4.60x) | pull (11.77x) |
