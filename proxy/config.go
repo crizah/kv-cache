@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/crizah/KV/proxy/services/health"
+	services "github.com/crizah/KV/proxy/services/request"
 	"github.com/crizah/KV/proxy/services/router"
 )
 
 type NodeConfig struct {
 	ID       string `json:"id"`        // identifier used across route table, health table and pull headers
-	HTTP     string `json:"http"`      // host:port of the node's HTTP server
+	HTTP     string `json:"http"`      // host:port of the node's SGLang HTTP server
+	AgentURL string `json:"agent_url"` // base URL of the node's agent metadata HTTP server
 	KVEvents string `json:"kv_events"` // host:port of the node's KV events PUB socket
 	Load     string `json:"load"`      // host:port of the node's load-publish socket
 }
@@ -31,11 +34,12 @@ type ModelConfig struct {
 }
 
 type Config struct {
-	Model      string                 `json:"model"` // active model, must be a key in models
-	Models     map[string]ModelConfig `json:"models"`
-	ListenAddr string                 `json:"listen_addr"`
-	Nodes      []NodeConfig           `json:"nodes"`
-	Health     HealthConfig           `json:"health"`
+	Model              string                 `json:"model"` // active model, must be a key in models
+	Models             map[string]ModelConfig `json:"models"`
+	ListenAddr         string                 `json:"listen_addr"`
+	Nodes              []NodeConfig           `json:"nodes"`
+	Health             HealthConfig           `json:"health"`
+	RequestTimeoutSec  int                    `json:"request_timeout_sec"` // per-request forward timeout; default 30
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -69,6 +73,9 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.Health.LoadedThreshold <= 0 {
 		cfg.Health.LoadedThreshold = 8
 	}
+	if cfg.RequestTimeoutSec <= 0 {
+		cfg.RequestTimeoutSec = 30
+	}
 	return &cfg, nil
 }
 
@@ -98,4 +105,34 @@ func (cfg *Config) healthConfig() health.Config {
 		WaitingWeight:   cfg.Health.WaitingWeight,
 		LoadedThreshold: cfg.Health.LoadedThreshold,
 	}
+}
+
+func (cfg *Config) nodeHTTPMap() map[string]string {
+	m := make(map[string]string, len(cfg.Nodes))
+	for _, n := range cfg.Nodes {
+		m[n.ID] = n.HTTP
+	}
+	return m
+}
+
+func (cfg *Config) nodeAgentURLMap() map[string]string {
+	m := make(map[string]string, len(cfg.Nodes))
+	for _, n := range cfg.Nodes {
+		m[n.ID] = n.AgentURL
+	}
+	return m
+}
+
+func (cfg *Config) requestServiceConfig() services.Config {
+	m := cfg.activeModel()
+	return services.Config{
+		Model:               services.Model(cfg.Model),
+		PageSize:            m.PageSize,
+		TokenizerPath:       m.TokenizerPath,
+		PullThresholdTokens: m.PullThresholdTokens,
+	}
+}
+
+func (cfg *Config) requestTimeout() time.Duration {
+	return time.Duration(cfg.RequestTimeoutSec) * time.Second
 }

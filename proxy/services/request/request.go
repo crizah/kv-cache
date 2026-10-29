@@ -91,36 +91,33 @@ func NewRequestService(cfg Config, input string, table *router.RouteTable, n *he
 	}, nil
 }
 
-func (req *RequestService) HandleReq(ctx context.Context) error {
-	// tokenise her
+func (req *RequestService) HandleReq(ctx context.Context) (*RouterRes, error) {
+	// toeknise her
 	encoded, err := req.tokenise()
 	if err != nil {
-		return fmt.Errorf("error encoding %s", err.Error())
+		return nil, fmt.Errorf("error encoding %s", err.Error())
 	}
 
-	// hash her in a chain until we hit a cache miss
 	N, err := req.hasher(ctx, encoded, nil)
 	if err != nil {
-		return fmt.Errorf("handleReq error %s", err.Error())
+		return nil, fmt.Errorf("handleReq error %s", err.Error())
 	}
-	// at this point N should never be null right?
+
 	node := req.router(ctx, N)
 	if node == nil {
-		// we didnt find any heakthy nodes lol
 		// TODO: add a retry with a buffer here
-		return fmt.Errorf("no healthy nodes lol")
+		return nil, fmt.Errorf("no healthy nodes")
 	}
-	// now, based on this node info, we send the actual req to the nodes
-	return nil
+	return node, nil
 }
 
-type routerRes struct {
-	nodeD    string   // the node to send the rteq to
-	nodeP    string   // the node to pull the req from. if set, we send with the special headers
-	metaData []string // the metadata needed to send with a pull req (the matched hash)
+type RouterRes struct {
+	NodeD    string   // the node to send the rteq to
+	NodeP    string   // the node to pull the req from. if set, we send with the special headers
+	MetaData []string // the metadata needed to send with a pull req (the matched hash)
 }
 
-func (req *RequestService) router(ctx context.Context, R *hasherRes) *routerRes {
+func (req *RequestService) router(ctx context.Context, R *hasherRes) *RouterRes {
 	// read all the alive nodes we can use
 	available := req.healthTable.GetHealthyNodes(ctx)
 	if len(available.SortedNodes) == 0 {
@@ -146,7 +143,7 @@ func (req *RequestService) router(ctx context.Context, R *hasherRes) *routerRes 
 
 	if !R.exists {
 		// cache miss everywhere: send to the healthiest node, no pull
-		return &routerRes{nodeD: destination, nodeP: "", metaData: []string{}} // TODO: get metadata we need
+		return &RouterRes{NodeD: destination, NodeP: "", MetaData: []string{}} // TODO: get metadata we need
 	}
 
 	// cache hit somewhere. sort the holders by their health status
@@ -172,16 +169,16 @@ func (req *RequestService) router(ctx context.Context, R *hasherRes) *routerRes 
 
 	if len(healthyHolders) > 0 {
 		// a healthy node already has the cache: send straight to it, no pull
-		return &routerRes{nodeD: healthyHolders[0], nodeP: "", metaData: []string{}} // TODO: get metadata we need
+		return &RouterRes{NodeD: healthyHolders[0], NodeP: "", MetaData: []string{}} // TODO: get metadata we need
 	}
 	if len(loadedHolders) > 0 && req.pullWorthIt(R.matched) {
 		// no healthy holder, but the matched prefix is long enough that pulling
 		// from a loaded holder beats recomputing it on the destination:
 		// send to the healthiest node and have it pull from the least loaded holder
-		return &routerRes{nodeD: destination, nodeP: loadedHolders[0], metaData: []string{}} // TODO: get metadata we need
+		return &RouterRes{NodeD: destination, NodeP: loadedHolders[0], MetaData: []string{}} // TODO: get metadata we need
 	}
 	// no holder we should pull from: recompute on the healthiest node
-	return &routerRes{nodeD: destination, nodeP: "", metaData: []string{}} // TODO: get metadata we need
+	return &RouterRes{NodeD: destination, NodeP: "", MetaData: []string{}} // TODO: get metadata we need
 }
 
 // pullWorthIt reports whether a matched prefix of matchedPages pages is long

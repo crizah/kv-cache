@@ -33,8 +33,17 @@ func main() {
 	healthTable := health.NewHealthTable(cfg.healthNodes(), cfg.healthConfig())
 	go healthTable.CheckHealth(ctx)
 
+	h := handlers.NewHandler(
+		cfg.requestServiceConfig(),
+		routeTable,
+		healthTable,
+		cfg.nodeHTTPMap(),
+		cfg.nodeAgentURLMap(),
+		cfg.requestTimeout(),
+	)
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/generate", handlers.ReqHandler)
+	mux.HandleFunc("/generate", h.ServeHTTP)
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: mux}
 
 	go func() {

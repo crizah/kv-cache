@@ -222,6 +222,8 @@ NOTE: also keep in mind, the actual kv cache doesnt use any hashing. it searches
 
 Requires `--kv-events-config` to be set with a TCP endpoint
 
+- we need to have /agent and /keys endpoints that run on the agent server itself and its diff from sglangs server, so we need to register and expose them ports as well for node to node communication (/agent is for metadat exchange and /keys is to get the keys)
+
 ### comparison
 compare against SGLangs L3 cache sharing. that would be fun
 maybe we can compare against llm-d(we should def do this one, its a very similar design but for vLLM) and a dedicated kv aware scheduling algo (like what was is called cacheroute or smth)
