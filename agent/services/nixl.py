@@ -1,0 +1,88 @@
+import base64
+import json
+import logging
+import threading
+import uuid
+from pathlib import Path
+
+import requests
+
+logger = logging.getLogger(__name__)
+TAG = "[nixl]"
+
+META_DIR = Path(".meta")
+
+# TODO: have all the loggers log timestamps
+
+class NixlService:
+    """
+    Wraps the NIXL agent for this node.
+    Initialized by the backend after SGLang hands us the host KV buffer.
+    Peers are connected lazily on first pull request via ensure_peer_connected().
+    Metadata is cached to .meta/<peer_id>.json so the handshake only happens once
+    per cluster lifetime (or until .meta/ is cleared).
+    """
+
+    def __init__(self, node_id: str):
+        from nixl._api import nixl_agent, nixl_agent_config
+
+        self.node_id = node_id
+        self.mem_size: int = 0
+        self._reg = None
+        self._lock = threading.Lock()
+        self._connected_peers: set[str] = set()  # peer IDs already handed to add_remote_agent
+
+        agent_name = f"{node_id}-{uuid.uuid4().hex[:8]}"
+        self._agent = nixl_agent(agent_name, nixl_agent_config(backends=["UCX"]))
+        logger.info(f"{TAG} NIXL agent created: {agent_name}")
+
+    def register_mem_pool(self, buf) -> None:
+        """Called once by the backend when SGLang provides the host KV buffer."""
+        base = buf.data_ptr()
+        nbytes = buf.numel() * buf.element_size()
+        self._reg = self._agent.register_memory([(base, nbytes, 0, "")], "DRAM")
+        self.mem_size = nbytes
+        logger.info(f"{TAG} registered host KV pool: base=0x{base:x} bytes={nbytes}")
+
+    def get_agent_metadata(self) -> bytes:
+        """Returns the serialized NIXL metadata blob for /agent endpoint."""
+        return self._agent.get_agent_metadata()
+
+    def ensure_peer_connected(self, peer_id: str, peer_url: str) -> None:
+        """
+        One-time NIXL handshake with a peer. Caches result to .meta/<peer_id>.json.
+        If the file already exists, the handshake is skipped (metadata exchange is
+        a one-time cost — will show in wall-clock time until cluster is warm).
+        """
+        with self._lock:
+            if peer_id in self._connected_peers:
+                return
+
+            META_DIR.mkdir(exist_ok=True)
+            cache_path = META_DIR / f"{peer_id}.json"
+
+            if cache_path.exists():
+                data = json.loads(cache_path.read_text())
+                logger.info(f"{TAG} loaded cached metadata for peer {peer_id}")
+            else:
+                logger.info(f"{TAG} fetching metadata from peer {peer_id} at {peer_url}")
+                resp = requests.get(f"{peer_url}/agent", timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+                cache_path.write_text(json.dumps(data))
+                logger.info(f"{TAG} cached metadata for peer {peer_id} to {cache_path}")
+
+            nixl_meta = base64.b64decode(data["nixl_metadata"])
+            self._agent.add_remote_agent(nixl_meta)
+            self._connected_peers.add(peer_id)
+            logger.info(f"{TAG} NIXL handshake complete with peer {peer_id} (mem_size={data['mem_size']})")
+
+    def set_active_peer(self, peer_url: str, peer_id: str) -> None:
+        """Called by generate handler before forwarding to SGLang."""
+        self.ensure_peer_connected(peer_id, peer_url)
+        # the backend reads _active_peer_id to know which peer's key map to use for batch_get_v1
+        self._active_peer_id = peer_id
+
+    @property
+    def active_peer_id(self) -> str | None:
+        return getattr(self, "_active_peer_id", None)

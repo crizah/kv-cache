@@ -11,8 +11,8 @@ class NodeConfig:
 @dataclass
 class AgentConfig:
     self_name: str           # node id, e.g. "A"
-    meta_port: int           # this agent's HTTP server port (from config meta field)
-    sglang_port: int         # internal SGLang HTTP port (from config sglang field)
+    http_port: int           # port this agent's HTTP server listens on (/generate, /agent, /keys)
+    sglang_port: int         # SGLang internal port, always on localhost
     page_size: int           # must match proxy hasher and SGLang --page-size
     pull_timeout_sec: int    # timeout for a NIXL pull
     request_timeout_sec: int # overall request timeout
@@ -45,8 +45,8 @@ def load_config(path: str, self_name: str) -> AgentConfig:
     if not self_node.get("ip"):
         raise ValueError(f"config: node {self_name!r}: ip is required")
 
-    meta_port = int(self_node["meta"].lstrip(":"))
-    sglang_port = int(self_node["sglang"].lstrip(":"))
+    http_port = int(self_node["http"])
+    sglang_port = int(self_node["sglang"])
 
     peers = []
     for n in nodes:
@@ -54,7 +54,7 @@ def load_config(path: str, self_name: str) -> AgentConfig:
             continue
         if not n.get("ip"):
             raise ValueError(f"config: node {n['id']!r}: ip is required")
-        peers.append(NodeConfig(id=n["id"], http=n["ip"] + ":" + n["http"].lstrip(":")))
+        peers.append(NodeConfig(id=n["id"], http=n["ip"] + ":" + n["http"]))
 
     pull_timeout_sec = raw.get("pull_timeout_sec", 30)
     if pull_timeout_sec <= 0:
@@ -66,7 +66,7 @@ def load_config(path: str, self_name: str) -> AgentConfig:
 
     return AgentConfig(
         self_name=self_name,
-        meta_port=meta_port,
+        http_port=http_port,
         sglang_port=sglang_port,
         page_size=page_size,
         pull_timeout_sec=pull_timeout_sec,

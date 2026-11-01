@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/crizah/KV/proxy/services/health"
@@ -26,12 +25,11 @@ func (n NodeConfig) toNode() (node.Node, error) {
 	if n.IP == "" {
 		return node.Node{}, fmt.Errorf("node %q: ip is required", n.ID)
 	}
-	port := func(p string) string { return strings.TrimPrefix(p, ":") }
 	return node.Node{
 		ID:           n.ID,
-		AgentURL:     "http://" + n.IP + ":" + port(n.HTTP),
-		KVEventsAddr: n.IP + ":" + port(n.KVEvents),
-		LoadAddr:     n.IP + ":" + port(n.Load),
+		AgentURL:     "http://" + n.IP + ":" + n.HTTP,
+		KVEventsAddr: n.IP + ":" + n.KVEvents,
+		LoadAddr:     n.IP + ":" + n.Load,
 	}, nil
 }
 

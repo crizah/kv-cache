@@ -80,7 +80,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	kvSource := ""
 	if res.NodeP.ID != "" {
-		kvSource = res.NodeP.AgentURL
+		kvSource = res.NodeP.ID
 	}
 
 	ch := make(chan fwdResult, 1)
