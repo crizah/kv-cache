@@ -2,3 +2,5 @@
 - our helpleness towards pinning cpu while reading
 - only allowing template req /generate and such
 - only one pull at a time right now (not only do we not support concurrency on pulls rn, we CANT handle another pull req while a pull is still being processed as it will execute with the wrong fields. its a correctness issue and we will have to set request level locks for it)
+- context.Cancel() equivalent on the python agent
+- not having an eviction policy for batch_Set_v1 is also a correctness issue, our cache can be stale, give gardbage or even wrong values when overwritten. all fixable with an eviction policy, but we aint doing that rn

@@ -54,6 +54,8 @@ type Config struct {
 	Nodes             []NodeConfig           `json:"nodes"`
 	Health            HealthConfig           `json:"health"`
 	RequestTimeoutSec int                    `json:"request_timeout_sec"`
+	CpuOffloadGB      int                    `json:"cpu_offload_gb"`
+	MemFractionStatic float64                `json:"mem_fraction_static"`
 }
 
 func loadConfig(path string) (*Config, error) {
