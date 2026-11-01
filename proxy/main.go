@@ -13,10 +13,13 @@ import (
 	"github.com/crizah/KV/proxy/handlers"
 	"github.com/crizah/KV/proxy/services/health"
 	"github.com/crizah/KV/proxy/services/router"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	cfg, err := loadConfig("config.json")
+	godotenv.Load()
+	configPath := os.Getenv("CONFIG_PATH")
+	cfg, err := loadConfig(configPath)
 	if err != nil {
 		slog.Error("load config", "error", err)
 		os.Exit(1)

@@ -21,5 +21,5 @@
     "waiting_weight": 1.0,
     "loaded_threshold": 8
   },
-  "request_timeout_sec": 30
+  "request_timeout_sec": 120
 }

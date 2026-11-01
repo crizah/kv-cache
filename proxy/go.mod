@@ -5,6 +5,7 @@ go 1.23.1
 require (
 	github.com/daulet/tokenizers v1.27.0
 	github.com/go-zeromq/zmq4 v0.17.0
+	github.com/joho/godotenv v1.5.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 )
 
