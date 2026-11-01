@@ -26,16 +26,11 @@ Running record of design decisions, open questions, and next steps. Update this 
 - LoadStat payload layout. The decoder in `proxy/services/health/health.go` (`decodeLoadStat`) currently assumes `["LoadStat", num_running_reqs, num_waiting_reqs, num_tokens, max_total_num_tokens, attn_dp_rank, ...]` over 3 ZMQ frames `[topic][seq][msgpack]`. One function to fix if the docs say otherwise.
 - Tuned values for `--mem-fraction-static`, `--hicache-ratio` / `--hicache-size`.
 - Page pinning while a peer is reading, plus pull timeout -> recompute fallback.
-- How node B obtains the producer's NIXL agent metadata and key->pointer map in real deployment. The exp used shared files in `meta_dir`; over the network this needs a transport. Proxy headers will carry the producer identity, but the NIXL handshake path is undecided.
-- `tokenizer.json` (the full fast tokenizer file) must be placed in `proxy/configs/<model>/`. `tokenizer_config.json` alone will not load in the Go tokenizer library.
+- How node B obtains the producer's NIXL agent metadata and key->pointer map in real deployment. The exp used shared files in `meta_dir`; over the network this needs a transport. Proxy headers will carry the producer identity, but the NIXL handshake path is undecided (we have a metadata endpoint on our agent server)
 
 ## Next steps
 
-- Implement `CheckHealth` as a LoadStat subscriber (alive vs loaded split).
-- Implement the HTTP handler: parse `/generate`, route, forward, stream the response back.
-- Pull-failure path: broadcast and remove the hash from the route table.
-- Agent side: read pull headers, add page pinning with timeout, tune launch flags.
-- Run the transfer-vs-recompute threshold experiment.
+ - agent design
 
 ## Change log
 

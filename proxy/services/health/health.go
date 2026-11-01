@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -282,18 +283,12 @@ func decodeLoadStat(payload []byte) (*LoadStat, error) {
 }
 
 func toInt64(v any) (int64, bool) {
-	// same helper as the router package
-	switch n := v.(type) {
-	case int64:
-		return n, true
-	case int:
-		return int64(n), true
-	case uint64:
-		return int64(n), true
-	case int32:
-		return int64(n), true
-	case uint32:
-		return int64(n), true
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return rv.Int(), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return int64(rv.Uint()), true
 	}
 	return 0, false
 }

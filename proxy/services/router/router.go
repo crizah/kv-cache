@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
-	"maps"
 	"reflect"
 	"sync"
 
@@ -181,24 +180,27 @@ func removeNodeFromAllHashes(table map[int64]map[string]struct{}, node string) {
 }
 
 func (table *RouteTable) ReadCache(ctx context.Context, hash int64) map[string]struct{} {
-	// reads the cache for this hash and returns the set of nodes if it exists in the table
-	// check both GPU and CPU; only a miss in both is a cache miss
+	// reads the cache for this hash and returns the union of nodes holding it
+	// across GPU and CPU (in practicality, anything in GPU SHOULD be in CPU, but this is just one extra O(1) lookup
+	// so its fine)
+	result := make(map[string]struct{})
 
 	table.routeMapCPU.mx.RLock()
-	node, ok := table.routeMapCPU.table[hash]
-	table.routeMapCPU.mx.RUnlock()
-	if !ok {
-		// check the GPU
-		table.routeMapGPU.mx.RLock()
-		node, ok = table.routeMapGPU.table[hash]
-		table.routeMapGPU.mx.RUnlock()
-		if !ok {
-			return nil
-		}
+	for n := range table.routeMapCPU.table[hash] {
+		result[n] = struct{}{}
 	}
-	// return a copy here since we dont need to modify it anymore
-	n := maps.Clone(node)
-	return n
+	table.routeMapCPU.mx.RUnlock()
+
+	table.routeMapGPU.mx.RLock()
+	for n := range table.routeMapGPU.table[hash] {
+		result[n] = struct{}{}
+	}
+	table.routeMapGPU.mx.RUnlock()
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 type rawKVEvent struct {
