@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/crizah/KV/proxy/services/health"
+	"github.com/crizah/KV/proxy/services/node"
 	"github.com/crizah/KV/proxy/services/router"
 
 	"github.com/daulet/tokenizers"
@@ -32,6 +33,7 @@ type RequestService struct {
 	routeTable          *router.RouteTable
 	tokeniser           *sharedTokenizer
 	healthTable         *health.HealthTable
+	nodeMap             map[string]node.Node // node ID -> Node, for looking up full node info from route table hits
 }
 
 type Model string
@@ -69,7 +71,7 @@ func getTokenizer(path string) (*sharedTokenizer, error) {
 	return st, nil
 }
 
-func NewRequestService(cfg Config, input string, table *router.RouteTable, n *health.HealthTable) (*RequestService, error) {
+func NewRequestService(cfg Config, input string, nodes []node.Node, table *router.RouteTable, n *health.HealthTable) (*RequestService, error) {
 	if cfg.PageSize <= 0 {
 		return nil, fmt.Errorf("pageSize must be > 0, got %d", cfg.PageSize)
 	}
@@ -80,6 +82,10 @@ func NewRequestService(cfg Config, input string, table *router.RouteTable, n *he
 	if err != nil {
 		return nil, err
 	}
+	nm := make(map[string]node.Node, len(nodes))
+	for _, nd := range nodes {
+		nm[nd.ID] = nd
+	}
 	return &RequestService{
 		model:               cfg.Model,
 		input:               input,
@@ -88,6 +94,7 @@ func NewRequestService(cfg Config, input string, table *router.RouteTable, n *he
 		routeTable:          table,
 		tokeniser:           tk,
 		healthTable:         n,
+		nodeMap:             nm,
 	}, nil
 }
 
@@ -112,9 +119,9 @@ func (req *RequestService) HandleReq(ctx context.Context) (*RouterRes, error) {
 }
 
 type RouterRes struct {
-	NodeD    string   // the node to send the rteq to
-	NodeP    string   // the node to pull the req from. if set, we send with the special headers
-	MetaData []string // the metadata needed to send with a pull req (the matched hash)
+	NodeD    node.Node  // the node to send the req to
+	NodeP    node.Node  // the node to pull the req from; zero value (ID == "") means no pull
+	MetaData []string   // the metadata needed to send with a pull req (the matched hash)
 }
 
 func (req *RequestService) router(ctx context.Context, R *hasherRes) *RouterRes {
@@ -128,14 +135,14 @@ func (req *RequestService) router(ctx context.Context, R *hasherRes) *RouterRes 
 
 	// the first healthy node in the sorted array is our default destination.
 	// loaded nodes are valid pull sources but we dont route fresh work to them.
-	destination := ""
+	var dest node.Node
 	for _, n := range available.SortedNodes {
 		if n.Status == health.StatusHealthy {
-			destination = n.IP
+			dest = n.Node
 			break
 		}
 	}
-	if destination == "" {
+	if dest.ID == "" {
 		// every alive node is loaded, nothing worth routing to
 		// TODO: add a retry with a buffer here
 		return nil
@@ -143,42 +150,46 @@ func (req *RequestService) router(ctx context.Context, R *hasherRes) *RouterRes 
 
 	if !R.exists {
 		// cache miss everywhere: send to the healthiest node, no pull
-		return &RouterRes{NodeD: destination, NodeP: "", MetaData: []string{}} // TODO: get metadata we need
+		return &RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 	}
 
 	// cache hit somewhere. sort the holders by their health status
-	var healthyHolders []string
-	var loadedHolders []string
-	for holder := range R.nodes {
-		status, ok := available.NodesMap[holder]
+	var healthyHolders []node.Node
+	var loadedHolders []node.Node
+	for holderID := range R.nodes {
+		status, ok := available.NodesMap[holderID]
 		if !ok {
 			// unhealthy: not in the map. cant route to it AND cant pull from
 			// it either, a dead node serves no bytes
 			continue
 		}
+		nd, ok := req.nodeMap[holderID]
+		if !ok {
+			continue
+		}
 		if status == health.StatusHealthy {
-			healthyHolders = append(healthyHolders, holder)
+			healthyHolders = append(healthyHolders, nd)
 		} else {
-			loadedHolders = append(loadedHolders, holder)
+			loadedHolders = append(loadedHolders, nd)
 		}
 	}
 
 	// order the holders by their position in the sorted array
-	sortByRef(healthyHolders, available.SortedNodes)
-	sortByRef(loadedHolders, available.SortedNodes)
+	sortNodesByRef(healthyHolders, available.SortedNodes)
+	sortNodesByRef(loadedHolders, available.SortedNodes)
 
 	if len(healthyHolders) > 0 {
 		// a healthy node already has the cache: send straight to it, no pull
-		return &RouterRes{NodeD: healthyHolders[0], NodeP: "", MetaData: []string{}} // TODO: get metadata we need
+		return &RouterRes{NodeD: healthyHolders[0], NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 	}
 	if len(loadedHolders) > 0 && req.pullWorthIt(R.matched) {
 		// no healthy holder, but the matched prefix is long enough that pulling
 		// from a loaded holder beats recomputing it on the destination:
 		// send to the healthiest node and have it pull from the least loaded holder
-		return &RouterRes{NodeD: destination, NodeP: loadedHolders[0], MetaData: []string{}} // TODO: get metadata we need
+		return &RouterRes{NodeD: dest, NodeP: loadedHolders[0], MetaData: []string{}} // TODO: get metadata we need
 	}
 	// no holder we should pull from: recompute on the healthiest node
-	return &RouterRes{NodeD: destination, NodeP: "", MetaData: []string{}} // TODO: get metadata we need
+	return &RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 }
 
 // pullWorthIt reports whether a matched prefix of matchedPages pages is long
@@ -188,9 +199,9 @@ func (req *RequestService) pullWorthIt(matchedPages int) bool {
 	return matchedPages*req.pageSize >= req.pullThresholdTokens
 }
 
-func getRank(b []health.NodeInfo, val string) int {
+func getRank(b []health.NodeInfo, id string) int {
 	for i, v := range b {
-		if v.IP == val {
+		if v.ID == id {
 			return i
 		}
 	}
@@ -198,12 +209,10 @@ func getRank(b []health.NodeInfo, val string) int {
 	return -1
 }
 
-func sortByRef(a []string, b []health.NodeInfo) {
-	// sorts a based on ref from b
-	slices.SortFunc(a, func(x, y string) int {
-		rankX := getRank(b, x)
-		rankY := getRank(b, y)
-		return cmp.Compare(rankX, rankY)
+func sortNodesByRef(a []node.Node, b []health.NodeInfo) {
+	// sorts a based on position in b
+	slices.SortFunc(a, func(x, y node.Node) int {
+		return cmp.Compare(getRank(b, x.ID), getRank(b, y.ID))
 	})
 }
 

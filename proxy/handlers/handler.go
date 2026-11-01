@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/crizah/KV/proxy/services/health"
+	"github.com/crizah/KV/proxy/services/node"
 	services "github.com/crizah/KV/proxy/services/request"
 	"github.com/crizah/KV/proxy/services/router"
 )
@@ -17,7 +18,7 @@ type Handler struct {
 	reqCfg      services.Config
 	routeTable  *router.RouteTable
 	healthTable *health.HealthTable
-	nodeHTTP    map[string]string // node ID -> agent base URL (proxy never talks to SGLang directly)
+	nodes       []node.Node
 	timeout     time.Duration
 	client      *http.Client
 }
@@ -26,14 +27,14 @@ func NewHandler(
 	reqCfg services.Config,
 	rt *router.RouteTable,
 	ht *health.HealthTable,
-	nodeHTTP map[string]string,
+	nodes []node.Node,
 	timeout time.Duration,
 ) *Handler {
 	return &Handler{
 		reqCfg:      reqCfg,
 		routeTable:  rt,
 		healthTable: ht,
-		nodeHTTP:    nodeHTTP,
+		nodes:       nodes,
 		timeout:     timeout,
 		client:      &http.Client{}, // timeout controlled by per-request context
 	}
@@ -62,7 +63,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	svc, err := services.NewRequestService(h.reqCfg, req.Text, h.routeTable, h.healthTable)
+	svc, err := services.NewRequestService(h.reqCfg, req.Text, h.nodes, h.routeTable, h.healthTable)
 	if err != nil {
 		http.Error(w, "service init: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -78,12 +79,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kvSource := ""
-	if res.NodeP != "" {
-		kvSource = h.nodeHTTP[res.NodeP]
+	if res.NodeP.ID != "" {
+		kvSource = res.NodeP.AgentURL
 	}
 
 	ch := make(chan fwdResult, 1)
-	targetURL := "http://" + h.nodeHTTP[res.NodeD] + r.URL.RequestURI()
+	targetURL := res.NodeD.AgentURL + r.URL.RequestURI()
 	go func() {
 		ch <- forwardReq(reqCtx, h.client, r.Method, targetURL, r.Header, body, kvSource)
 	}()
@@ -102,7 +103,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		w.WriteHeader(result.resp.StatusCode)
-		io.Copy(w, result.resp.Body)
+		io.Copy(w, result.resp.Body) //nolint:errcheck
 	case <-reqCtx.Done():
 		// TODO: retry with other nodes or buffer here
 		http.Error(w, "request timeout or cancelled", http.StatusGatewayTimeout)

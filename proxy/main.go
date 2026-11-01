@@ -28,19 +28,25 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	nodes, err := cfg.nodes()
+	if err != nil {
+		slog.Error("build nodes", "error", err)
+		os.Exit(1)
+	}
+
 	// route table, kept up to date in the background by the nodes' KV events
-	routeTable := router.NewRouteTableService(cfg.routerNodes())
+	routeTable := router.NewRouteTableService(nodes)
 	go routeTable.Listen(ctx)
 
 	// health table, kept up to date in the background by the nodes' load publisher
-	healthTable := health.NewHealthTable(cfg.healthNodes(), cfg.healthConfig())
+	healthTable := health.NewHealthTable(nodes, cfg.healthConfig())
 	go healthTable.CheckHealth(ctx)
 
 	h := handlers.NewHandler(
 		cfg.requestServiceConfig(),
 		routeTable,
 		healthTable,
-		cfg.nodeHTTPMap(),
+		nodes,
 		cfg.requestTimeout(),
 	)
 

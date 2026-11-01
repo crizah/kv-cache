@@ -4,23 +4,40 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/crizah/KV/proxy/services/health"
+	"github.com/crizah/KV/proxy/services/node"
 	services "github.com/crizah/KV/proxy/services/request"
-	"github.com/crizah/KV/proxy/services/router"
 )
 
 type NodeConfig struct {
-	ID       string `json:"id"`        // identifier used across route table, health table and pull headers
-	HTTP     string `json:"http"`      // base URL of the node's agent HTTP server (proxy talks to this, NOT SGLang directly)
-	KVEvents string `json:"kv_events"` // host:port of the node's KV events PUB socket (SGLang publishes, proxy subscribes)
-	Load     string `json:"load"`      // host:port of the node's load-publish socket (SGLang publishes, proxy subscribes)
+	ID       string `json:"id"`
+	IP       string `json:"ip"`        // empty defaults to 127.0.0.1
+	HTTP     string `json:"http"`      // agent HTTP port, e.g. ":9100"
+	KVEvents string `json:"kv_events"` // ZMQ KV events port, e.g. ":5557"
+	Load     string `json:"load"`      // ZMQ load publisher port, e.g. ":6000"
+	Meta     string `json:"meta"`      // agent metadata port (peer-to-peer, not used by proxy)
+	SGLang   string `json:"sglang"`    // SGLang internal port (not used by proxy)
+}
+
+func (n NodeConfig) toNode() (node.Node, error) {
+	if n.IP == "" {
+		return node.Node{}, fmt.Errorf("node %q: ip is required", n.ID)
+	}
+	port := func(p string) string { return strings.TrimPrefix(p, ":") }
+	return node.Node{
+		ID:           n.ID,
+		AgentURL:     "http://" + n.IP + ":" + port(n.HTTP),
+		KVEventsAddr: n.IP + ":" + port(n.KVEvents),
+		LoadAddr:     n.IP + ":" + port(n.Load),
+	}, nil
 }
 
 type HealthConfig struct {
-	WaitingWeight   float64 `json:"waiting_weight"`   // weight of queued requests in the load score
-	LoadedThreshold float64 `json:"loaded_threshold"` // load score above which a node is marked loaded
+	WaitingWeight   float64 `json:"waiting_weight"`
+	LoadedThreshold float64 `json:"loaded_threshold"`
 }
 
 // ModelConfig holds the settings that depend on the model. Page size and
@@ -33,12 +50,12 @@ type ModelConfig struct {
 }
 
 type Config struct {
-	Model              string                 `json:"model"` // active model, must be a key in models
-	Models             map[string]ModelConfig `json:"models"`
-	ListenAddr         string                 `json:"listen_addr"`
-	Nodes              []NodeConfig           `json:"nodes"`
-	Health             HealthConfig           `json:"health"`
-	RequestTimeoutSec  int                    `json:"request_timeout_sec"` // per-request forward timeout; default 30
+	Model             string                 `json:"model"`
+	Models            map[string]ModelConfig `json:"models"`
+	ListenAddr        string                 `json:"listen_addr"`
+	Nodes             []NodeConfig           `json:"nodes"`
+	Health            HealthConfig           `json:"health"`
+	RequestTimeoutSec int                    `json:"request_timeout_sec"`
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -78,25 +95,21 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// activeModel returns the settings for the model selected by cfg.Model.
 func (cfg *Config) activeModel() ModelConfig {
 	return cfg.Models[cfg.Model]
 }
 
-func (cfg *Config) routerNodes() []router.Node {
-	nodes := make([]router.Node, 0, len(cfg.Nodes))
-	for _, n := range cfg.Nodes {
-		nodes = append(nodes, router.Node{ID: n.ID, KVAddr: n.KVEvents})
+// nodes builds the shared Node slice from config. All services receive this same slice.
+func (cfg *Config) nodes() ([]node.Node, error) {
+	ns := make([]node.Node, len(cfg.Nodes))
+	for i, n := range cfg.Nodes {
+		nd, err := n.toNode()
+		if err != nil {
+			return nil, err
+		}
+		ns[i] = nd
 	}
-	return nodes
-}
-
-func (cfg *Config) healthNodes() []health.Node {
-	nodes := make([]health.Node, 0, len(cfg.Nodes))
-	for _, n := range cfg.Nodes {
-		nodes = append(nodes, health.Node{ID: n.ID, LoadAddr: n.Load})
-	}
-	return nodes
+	return ns, nil
 }
 
 func (cfg *Config) healthConfig() health.Config {
@@ -105,15 +118,6 @@ func (cfg *Config) healthConfig() health.Config {
 		LoadedThreshold: cfg.Health.LoadedThreshold,
 	}
 }
-
-func (cfg *Config) nodeHTTPMap() map[string]string {
-	m := make(map[string]string, len(cfg.Nodes))
-	for _, n := range cfg.Nodes {
-		m[n.ID] = n.HTTP
-	}
-	return m
-}
-
 
 func (cfg *Config) requestServiceConfig() services.Config {
 	m := cfg.activeModel()

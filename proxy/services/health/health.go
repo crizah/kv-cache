@@ -13,6 +13,8 @@ import (
 
 	zmq "github.com/go-zeromq/zmq4"
 	"github.com/vmihailenco/msgpack/v5"
+
+	"github.com/crizah/KV/proxy/services/node"
 )
 
 // Status is the health verdict for a node.
@@ -44,12 +46,6 @@ func (s Status) String() string {
 // is older than this is treated as unhealthy when read.
 const staleAfter = 5 * time.Minute
 
-// Node is one SGLang server as the health service sees it.
-type Node struct {
-	ID       string
-	LoadAddr string // host:port of the node's load-publish socket
-}
-
 // Config holds the knobs for the load score: score = running + weight*waiting.
 // A node whose score is above LoadedThreshold is marked StatusLoaded.
 type Config struct {
@@ -64,14 +60,14 @@ func loadScore(running, waiting int64, waitingWeight float64) float64 {
 type HealthTable struct {
 	mx              sync.RWMutex
 	table           map[string]*NodeInfo
-	nodes           []Node
+	nodes           []node.Node
 	waitingWeight   float64
 	loadedThreshold float64
 }
 
 type NodeInfo struct {
+	node.Node           // embedded: ID, AgentURL, KVEventsAddr, LoadAddr
 	Status      Status
-	IP          string
 	RunningReqs int64
 	WaitingReqs int64
 	Tokens      int64
@@ -82,14 +78,14 @@ type NodeInfo struct {
 // this only contains node with status StatusHealthy StatusLoaded and all loaded after all status
 type AvailableNodes struct {
 	SortedNodes []NodeInfo        // healthy and loaded nodes, least loaded first
-	NodesMap    map[string]Status // alive nodes and their status
+	NodesMap    map[string]Status // node ID -> status
 }
 
-func NewHealthTable(nodes []Node, cfg Config) *HealthTable {
+func NewHealthTable(nodes []node.Node, cfg Config) *HealthTable {
 	t := make(map[string]*NodeInfo, len(nodes))
 	for _, n := range nodes {
 		// nodes start unhealthy until their first LoadStat arrives
-		t[n.ID] = &NodeInfo{IP: n.ID, Status: StatusUnhealthy}
+		t[n.ID] = &NodeInfo{Node: n, Status: StatusUnhealthy}
 	}
 	return &HealthTable{
 		table:           t,
@@ -191,7 +187,7 @@ func (table *HealthTable) GetHealthyNodes(ctx context.Context) AvailableNodes {
 			continue
 		}
 		sorted = append(sorted, *info)
-		nodesMap[info.IP] = info.Status
+		nodesMap[info.ID] = info.Status
 	}
 
 	slices.SortFunc(sorted, func(a, b NodeInfo) int {

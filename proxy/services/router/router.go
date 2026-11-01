@@ -10,22 +10,14 @@ import (
 
 	zmq "github.com/go-zeromq/zmq4"
 	"github.com/vmihailenco/msgpack/v5"
-)
 
-// Node is one SGLang server as the proxy sees it.
-// ID is the identifier used across the route table, the health table and the
-// pull headers. Two nodes on one machine cannot share a ZMQ port, so each
-// node carries its own addresses.
-type Node struct {
-	ID         string
-	KVAddr     string // host:port of the node's KV events PUB socket
-	ReplayAddr string // host:port of the node's replay socket (optional, for missed-batch replay)
-}
+	"github.com/crizah/KV/proxy/services/node"
+)
 
 type RouteTable struct {
 	routeMapCPU *cpuMap
 	routeMapGPU *gpuMap
-	nodes       []Node
+	nodes       []node.Node
 	// seqMap is only written by Listen's single consumer goroutine, no lock needed
 	seqMap map[string]uint64 // tracks the last seen seq kv event per node
 }
@@ -40,7 +32,7 @@ type gpuMap struct {
 	table map[int64]map[string]struct{} // maps hash to the set of nodes holding it in GPU
 }
 
-func NewRouteTableService(nodes []Node) *RouteTable {
+func NewRouteTableService(nodes []node.Node) *RouteTable {
 	c := make(map[int64]map[string]struct{})
 	g := make(map[int64]map[string]struct{})
 	seq := make(map[string]uint64)
@@ -225,7 +217,7 @@ func (table *RouteTable) Listen(ctx context.Context) {
 
 	for _, n := range table.nodes {
 		// have all of them write to ch
-		go listenNode(ctx, n.KVAddr, n.ID, ch)
+		go listenNode(ctx, n.KVEventsAddr, n.ID, ch)
 	}
 
 	for {
