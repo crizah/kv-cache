@@ -41,3 +41,35 @@ Running record of design decisions, open questions, and next steps. Update this 
 - the /agent endpoint is a one time thing between 2 nodes to exchange NIXL metadat. stored in .metadata. 
 since this is a one time thing, it will affect our wall time, but the wiring is done in a way to skip this handshake if the metadata exists already.
 the actual metadata includes only the pulled nodesID, the NIXL metadata and the CPU mem size we are allowed to read from (this is diff from the flag we pass `--cpu-offload-gb` i think, dont quote me on this, but i think the exact value of this is volatile)
+
+also, TODO: have a startup script that hits this endpoint on every combination of nodes at cluster registration
+
+TODO: have a batch_delete_v1 (have it subscribe to the same zmq path the proxy subscribes to, and this evicts the in memeory key value map on the source) local_keys is exactly hash → (k_ptr, v_ptr, elem_bytes)
+
+okay so a design decision im not super sure on:
+- the proxy already contains the hashes and the nodes that contain them via zmq events
+- what we are doing is, upon every pull request, we are running a batch_exists. this guys checks a local table on the sourc that contains the actual key:value and tensors where this cache is stored on the CPU
+- we then pull based on this mem address we just got
+- batch_set_v1 sets this map when we get new cache on CPU
+
+issues:
+1. 2 sources of truth (even tho we have recompute fallbacks)
+2. eating up mem on CPU
+3. the most important one: eviction policy. to have this eviction policy on this second node, we need to have our agent subscribe to the same zmq event that the proxy subscribes to -> decode hash -> evict. not evicting isnt a correctness issue because we only send a req in the first place of the proxy believes this node has it, since proxy's table is updated, only edge cases fall through where we might visit this path, and even then, if the keys dont exist, we do a recomputation. 
+4. but its just the 2 sources of truth thats bothering me. on the other hand, if we had the proxy itself save the memory addr of the blocks, thats HEAVY coupling and idk does sglang move shit around? plus, the cache events dont give u the mem addr, ill have to make another call for it so....
+
+for now, i am going with the 2 source of truth design cos() its cleaner. but we need an eviction policy for this to ever work as anything but an exp
+
+- also, make the launch script to start sg lang with ts
+
+```
+ --port {sglang_port}
+ --page-size {page_size}                        # from models[model].page_size
+ --kv-events-zmq-addr {ip}:{kv_events_port}    # proxy subscribes to this
+ --load-balance-zmq-addr {ip}:{load_port}       # proxy subscribes to this
+ --cpu-offload-gb {N}                           # not in config.json yet
+ --mem-fraction-static {N}                      # not in config.json yet
+ --hicache-storage-backend dynamic
+ --hicache-storage-backend-extra-config '{"self_name": "A", "config_path": "...", "interface_v1": 1}'
+ --model {model_path}
+```

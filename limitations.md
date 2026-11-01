@@ -1,0 +1,4 @@
+- the eviction policy thing for batch_set_v1
+- our helpleness towards pinning cpu while reading
+- only allowing template req /generate and such
+- only one pull at a time right now (not only do we not support concurrency on pulls rn, we CANT handle another pull req while a pull is still being processed as it will execute with the wrong fields. its a correctness issue and we will have to set request level locks for it)

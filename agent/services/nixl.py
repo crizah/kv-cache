@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -30,7 +31,7 @@ class NixlService:
         self.mem_size: int = 0
         self._reg = None
         self._lock = threading.Lock()
-        self._connected_peers: set[str] = set()  # peer IDs already handed to add_remote_agent
+        self._peer_agents: dict[str, str] = {}  # peer_id -> remote agent name (from add_remote_agent)
 
         agent_name = f"{node_id}-{uuid.uuid4().hex[:8]}"
         self._agent = nixl_agent(agent_name, nixl_agent_config(backends=["UCX"]))
@@ -45,17 +46,16 @@ class NixlService:
         logger.info(f"{TAG} registered host KV pool: base=0x{base:x} bytes={nbytes}")
 
     def get_agent_metadata(self) -> bytes:
-        """Returns the serialized NIXL metadata blob for /agent endpoint."""
         return self._agent.get_agent_metadata()
 
     def ensure_peer_connected(self, peer_id: str, peer_url: str) -> None:
         """
         One-time NIXL handshake with a peer. Caches result to .meta/<peer_id>.json.
         If the file already exists, the handshake is skipped (metadata exchange is
-        a one-time cost — will show in wall-clock time until cluster is warm).
+        a one-time cost — will show in wall-clock on a cold cluster).
         """
         with self._lock:
-            if peer_id in self._connected_peers:
+            if peer_id in self._peer_agents:
                 return
 
             META_DIR.mkdir(exist_ok=True)
@@ -66,23 +66,57 @@ class NixlService:
                 logger.info(f"{TAG} loaded cached metadata for peer {peer_id}")
             else:
                 logger.info(f"{TAG} fetching metadata from peer {peer_id} at {peer_url}")
-                resp = requests.get(f"{peer_url}/agent", timeout=30)
+                resp = requests.get(f"http://{peer_url}/agent", timeout=30)
                 resp.raise_for_status()
                 data = resp.json()
                 cache_path.write_text(json.dumps(data))
                 logger.info(f"{TAG} cached metadata for peer {peer_id} to {cache_path}")
 
             nixl_meta = base64.b64decode(data["nixl_metadata"])
-            self._agent.add_remote_agent(nixl_meta)
-            self._connected_peers.add(peer_id)
-            logger.info(f"{TAG} NIXL handshake complete with peer {peer_id} (mem_size={data['mem_size']})")
+            remote_name = self._agent.add_remote_agent(nixl_meta)
+            if isinstance(remote_name, bytes):
+                remote_name = remote_name.decode()
+            self._peer_agents[peer_id] = remote_name
+            logger.info(f"{TAG} NIXL handshake complete with peer {peer_id} remote_agent={remote_name}")
 
-    def set_active_peer(self, peer_url: str, peer_id: str) -> None:
+    def set_active_peer(self, peer_id: str, peer_url: str) -> None:
         """Called by generate handler before forwarding to SGLang."""
         self.ensure_peer_connected(peer_id, peer_url)
-        # the backend reads _active_peer_id to know which peer's key map to use for batch_get_v1
         self._active_peer_id = peer_id
 
     @property
     def active_peer_id(self) -> str | None:
         return getattr(self, "_active_peer_id", None)
+
+    def read(self, peer_id: str, loc: list, rem: list) -> bool:
+        """
+        NIXL READ: pull remote memory into local buffers.
+        loc / rem are lists of (ptr, size, 0) tuples — one per k/v tensor per block.
+        Returns True on success.
+        """
+        remote_agent = self._peer_agents.get(peer_id)
+        if remote_agent is None:
+            logger.error(f"{TAG} read: peer {peer_id} not connected")
+            return False
+
+        t0 = time.perf_counter()
+        ld = self._agent.get_xfer_descs(loc, "DRAM")
+        rd = self._agent.get_xfer_descs(rem, "DRAM")
+        h = self._agent.initialize_xfer("READ", ld, rd, remote_agent)
+        if not h:
+            logger.error(f"{TAG} initialize_xfer failed for peer {peer_id}")
+            return False
+
+        state = self._agent.transfer(h)
+        while state not in ("DONE", "ERR"):
+            state = self._agent.check_xfer_state(h)
+        self._agent.release_xfer_handle(h)
+
+        elapsed_ms = (time.perf_counter() - t0) * 1e3
+        if state == "ERR":
+            logger.error(f"{TAG} NIXL READ failed for peer {peer_id} in {elapsed_ms:.1f}ms")
+            return False
+
+        nbytes = sum(x[1] for x in loc)
+        logger.info(f"{TAG} NIXL READ from {peer_id}: descs={len(loc)} bytes={nbytes} {elapsed_ms:.1f}ms")
+        return True
