@@ -38,7 +38,6 @@ func main() {
 		routeTable,
 		healthTable,
 		cfg.nodeHTTPMap(),
-		cfg.nodeAgentURLMap(),
 		cfg.requestTimeout(),
 	)
 

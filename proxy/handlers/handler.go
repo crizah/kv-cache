@@ -14,13 +14,12 @@ import (
 )
 
 type Handler struct {
-	reqCfg       services.Config
-	routeTable   *router.RouteTable
-	healthTable  *health.HealthTable
-	nodeHTTP     map[string]string // node ID -> SGLang "host:port"
-	nodeAgentURL map[string]string // node ID -> agent metadata base URL
-	timeout      time.Duration
-	client       *http.Client
+	reqCfg      services.Config
+	routeTable  *router.RouteTable
+	healthTable *health.HealthTable
+	nodeHTTP    map[string]string // node ID -> agent base URL (proxy never talks to SGLang directly)
+	timeout     time.Duration
+	client      *http.Client
 }
 
 func NewHandler(
@@ -28,17 +27,15 @@ func NewHandler(
 	rt *router.RouteTable,
 	ht *health.HealthTable,
 	nodeHTTP map[string]string,
-	nodeAgentURL map[string]string,
 	timeout time.Duration,
 ) *Handler {
 	return &Handler{
-		reqCfg:       reqCfg,
-		routeTable:   rt,
-		healthTable:  ht,
-		nodeHTTP:     nodeHTTP,
-		nodeAgentURL: nodeAgentURL,
-		timeout:      timeout,
-		client:       &http.Client{}, // timeout controlled by per-request context
+		reqCfg:      reqCfg,
+		routeTable:  rt,
+		healthTable: ht,
+		nodeHTTP:    nodeHTTP,
+		timeout:     timeout,
+		client:      &http.Client{}, // timeout controlled by per-request context
 	}
 }
 
@@ -82,7 +79,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	kvSource := ""
 	if res.NodeP != "" {
-		kvSource = h.nodeAgentURL[res.NodeP]
+		kvSource = h.nodeHTTP[res.NodeP]
 	}
 
 	ch := make(chan fwdResult, 1)

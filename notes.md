@@ -4,6 +4,7 @@ Running record of design decisions, open questions, and next steps. Update this 
 
 ## Locked design decisions
 
+- **Proxy never talks to SGLang directly.** The proxy talks only to the agent's HTTP server (port 9100/9101). The agent sits in front of SGLang, reads the `X-Kv-Source` header, triggers the NIXL pull if needed, then forwards `/generate` to SGLang internally. SGLang ports (30000/30001) are internal only.
 - **Pull is directed by the proxy.** On a cache hit on an unhealthy node, the proxy routes the request to a healthy node and sends headers telling it which producer to pull from. Agents never scan peers themselves.
 - **Route table reads check both tiers.** `ReadCache` checks the CPU map, then the GPU map. A hash is a miss only if absent from both. Kept as-is.
 - **Health comes from SGLang's load publisher** (ZMQ), not an HTTP `/health` endpoint. Liveness and load are separate signals: a node can be alive but too loaded to route to, and a dead node is never a valid pull source.

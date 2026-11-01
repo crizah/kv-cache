@@ -13,10 +13,9 @@ import (
 
 type NodeConfig struct {
 	ID       string `json:"id"`        // identifier used across route table, health table and pull headers
-	HTTP     string `json:"http"`      // host:port of the node's SGLang HTTP server
-	AgentURL string `json:"agent_url"` // base URL of the node's agent metadata HTTP server
-	KVEvents string `json:"kv_events"` // host:port of the node's KV events PUB socket
-	Load     string `json:"load"`      // host:port of the node's load-publish socket
+	HTTP     string `json:"http"`      // base URL of the node's agent HTTP server (proxy talks to this, NOT SGLang directly)
+	KVEvents string `json:"kv_events"` // host:port of the node's KV events PUB socket (SGLang publishes, proxy subscribes)
+	Load     string `json:"load"`      // host:port of the node's load-publish socket (SGLang publishes, proxy subscribes)
 }
 
 type HealthConfig struct {
@@ -115,13 +114,6 @@ func (cfg *Config) nodeHTTPMap() map[string]string {
 	return m
 }
 
-func (cfg *Config) nodeAgentURLMap() map[string]string {
-	m := make(map[string]string, len(cfg.Nodes))
-	for _, n := range cfg.Nodes {
-		m[n.ID] = n.AgentURL
-	}
-	return m
-}
 
 func (cfg *Config) requestServiceConfig() services.Config {
 	m := cfg.activeModel()
