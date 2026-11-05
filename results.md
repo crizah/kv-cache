@@ -6,3 +6,5 @@ and qwen3-32B (:money) (lol gotta put the unis gpu to use guys)
 ```
 
 results are in results_part_0_25 and the tar version of that guy contains a bunch of logs
+
+largely depends on the hardware guys. i am GUESSING yall dont have a bunch of h200 pros sitting around
