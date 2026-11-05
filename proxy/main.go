@@ -36,6 +36,11 @@ func main() {
 
 	// route table, kept up to date in the background by the nodes' KV events
 	routeTable := router.NewRouteTableService(nodes)
+	// if its round robin, initliaise that bitch
+	if cfg.Router == "rr" {
+		routeTable.RRMap.TotalNodes = len(nodes)
+		routeTable.RRMap.CurrentIndex = -1
+	}
 	go routeTable.Listen(ctx)
 
 	// health table, kept up to date in the background by the nodes' load publisher

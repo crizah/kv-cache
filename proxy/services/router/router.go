@@ -17,14 +17,21 @@ import (
 type RouteTable struct {
 	routeMapCPU *cpuMap
 	routeMapGPU *gpuMap
-	nodes       []node.Node
+	Nodes       []node.Node // this is canonical built once, so we can use this for our round robin scheduling
 	// seqMap is only written by Listen's single consumer goroutine, no lock needed
 	seqMap map[string]uint64 // tracks the last seen seq kv event per node
+	RRMap  *roundRobinMap    // tracks the last used node for round robin scheduling, only valid when
+	// the config is rr type
 }
 
 type cpuMap struct {
 	mx    sync.RWMutex
 	table map[int64]map[string]struct{} // maps hash to the set of nodes holding it in CPU
+}
+type roundRobinMap struct {
+	Mx           sync.RWMutex
+	TotalNodes   int
+	CurrentIndex int
 }
 
 type gpuMap struct {
@@ -38,7 +45,7 @@ func NewRouteTableService(nodes []node.Node) *RouteTable {
 	seq := make(map[string]uint64)
 	return &RouteTable{routeMapCPU: &cpuMap{table: c},
 		routeMapGPU: &gpuMap{table: g},
-		nodes:       nodes, seqMap: seq}
+		Nodes:       nodes, seqMap: seq}
 }
 
 func (table *RouteTable) writeCache(batch *KVEventBatch) {
@@ -215,7 +222,7 @@ func (table *RouteTable) Listen(ctx context.Context) {
 	// and this one routine reads from it
 	ch := make(chan *KVEventBatch, 1024) // NOTE: idk about this exact buffer size
 
-	for _, n := range table.nodes {
+	for _, n := range table.Nodes {
 		// have all of them write to ch
 		go listenNode(ctx, n.KVEventsAddr, n.ID, ch)
 	}

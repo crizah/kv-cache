@@ -1,4 +1,4 @@
-package services
+package request
 
 import (
 	"cmp"
@@ -34,6 +34,7 @@ type RequestService struct {
 	tokeniser           *sharedTokenizer
 	healthTable         *health.HealthTable
 	nodeMap             map[string]node.Node // node ID -> Node, for looking up full node info from route table hits
+	routerType          string               // kv, rr, cacheRoute
 }
 
 type Model string
@@ -110,7 +111,20 @@ func (req *RequestService) HandleReq(ctx context.Context) (*RouterRes, error) {
 		return nil, fmt.Errorf("handleReq error %s", err.Error())
 	}
 
-	node := req.router(ctx, N)
+	var router Router
+
+	switch req.routerType {
+	case "kv":
+		router = NewKvRouter(req)
+	case "rr":
+		router = NewRRRouter(req)
+	case "cacheRoute":
+		router = NewCacheRouter(req)
+	case "ll":
+		router = NewLLRouter(req)
+	}
+
+	node := router.router(ctx, N)
 	if node == nil {
 		// TODO: add a retry with a buffer here
 		return nil, fmt.Errorf("no healthy nodes")
@@ -119,9 +133,9 @@ func (req *RequestService) HandleReq(ctx context.Context) (*RouterRes, error) {
 }
 
 type RouterRes struct {
-	NodeD    node.Node  // the node to send the req to
-	NodeP    node.Node  // the node to pull the req from; zero value (ID == "") means no pull
-	MetaData []string   // the metadata needed to send with a pull req (the matched hash)
+	NodeD    node.Node // the node to send the req to
+	NodeP    node.Node // the node to pull the req from; zero value (ID == "") means no pull
+	MetaData []string  // the metadata needed to send with a pull req (the matched hash)
 }
 
 func (req *RequestService) router(ctx context.Context, R *hasherRes) *RouterRes {

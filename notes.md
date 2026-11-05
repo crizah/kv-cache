@@ -73,3 +73,7 @@ for now, i am going with the 2 source of truth design cos() its cleaner. but we 
  --hicache-storage-backend-extra-config '{"self_name": "A", "config_path": "...", "interface_v1": 1}'
  --model {model_path}
 ```
+
+- also, make sure our routing algo takes into account the current load + the queued load
+- so next we just have to make an interface out of the routing logic to have round robin and cacheroute
+- and also, we need to add the json tokenisers for our model

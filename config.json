@@ -3,6 +3,7 @@
   "model_path": "Qwen/Qwen3-4B",
   "cpu_offload_gb": 20,
   "mem_fraction_static": 0.85,
+  "router": "kv",
   "backend_module_path": "agent/backend.py",
   "meta_dir": "/.meta",
   "models": {

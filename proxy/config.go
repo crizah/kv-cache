@@ -47,10 +47,20 @@ type ModelConfig struct {
 	PullThresholdTokens int    `json:"pull_threshold_tokens"` // matched prefix (tokens) at/above which a cross-node pull beats recompute; 0 means no threshold
 }
 
+//
+// type RouterType string
+//
+// const (
+// 	KV         RouterType = "kv"
+// 	CACHEROUTE RouterType = "CacheRoute"
+// 	RR         RouterType = "RR"
+// )
+
 type Config struct {
 	Model             string                 `json:"model"`
 	Models            map[string]ModelConfig `json:"models"`
 	ListenAddr        string                 `json:"listen_addr"`
+	Router            string                 `json:"router"`
 	Nodes             []NodeConfig           `json:"nodes"`
 	Health            HealthConfig           `json:"health"`
 	RequestTimeoutSec int                    `json:"request_timeout_sec"`
@@ -92,6 +102,18 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.RequestTimeoutSec <= 0 {
 		cfg.RequestTimeoutSec = 30
 	}
+	// 	switch cfg.Router {
+	// 	case "kv":
+	// 		cfg.Router = KV
+	// 	case "CacheRoute":
+	// 		cfg.Router = CACHEROUTE
+	// 	case "RR":
+	// 		cfg.Router = RR
+	// 	default:
+	// 		return nil, fmt.Errorf("Not a valid router type %s", cfg.Router)
+	//
+	// 	}
+
 	return &cfg, nil
 }
 

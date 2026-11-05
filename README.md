@@ -229,22 +229,59 @@ compare against SGLangs L3 cache sharing. that would be fun
 maybe we can compare against llm-d(we should def do this one, its a very similar design but for vLLM) and a dedicated kv aware scheduling algo (like what was is called cacheroute or smth)
 im not a 100% sure on how nvidias Dynamo framework works, but from what i understand, it does a similar routing logic. but the thing is, idek if this method is like worth it all in the first place guys. like, this might just absolutely tank on latency
 
-I think we should do a test for the "break point between latency and recomputation for prefix lengths" experiment first
-what does llm-d do? it mush have a similar mechanism
-okay so, they have a script that caliberates this shit for ur model, GPU and transport which is neat. we will not be doing that for this run :sob:
-But since they have it caliberated dynamically, the experimental comparison should be fair.
-
-obv we wont be able to make this super sophisticated to survive actual production workloads, but this is just a proof and not a prod ready software
-
-- i think we should make the offilne shit first
-- and have a startup script i can just run to save on costs
-- once we get out agent and proxy working, we can carry out the experiment to get the sweet number. will also need more CPU ram so i can use a larger model
-(like 100B+ lets see)
-
 also NOTE: this is NOT tested on hybrid models (like Qwen3.8 27B), i dont know if the concept works there and i dont want to test it for this run man
 
+### OKAY (keep in mind we cant have 2 pulls at the same time)
 
-sweep experiment done on:
+final experiment design:
+1. part 0, recompute against transfer:
+Qwen3-4B model, we measure metrics for different prefix lengths, and compare against recomputation and network transfer of the cache
+
+Metrics:
+- TTFT (for recompute, pull and local hit) and the breakdown (lookup, NIXL read, copy into the GPU, suffix prefill), effectove Gbps
+- Throttle the links to 1, 5, and 10Gbps and get a median and p95 across each throttle (20 rounds each)
+
+The actual lengths:
+lets have it be at 5k, 10k, 20k, 40k ( we can measure more, ill decide which to display when teh results cum)
+
+2. part 1, load balancer:
+We compare metrics vs load_on_node_with_cache across 3 different prefix lengths and 3 algos exclusing ours
+
+Algos:
+- RoundRobin 
+- CacheRoute (not sure on this one since they didnt mention their github in the paper, ill have to recreate the algo)
+- NVIDIA dynamo (undecided if we are going to include this, its a stretch)
+- us
+
+Metrics:
+- TTFT p50 and p95
+- TPOT p50 and p95
+- end-to-end latency p95
+- cache hit rate (cached tokens over prompt tokens)
+
+The saturation of A:
+Because we want to look nice, lets measure at 10%, 50%, 80%, 100% of SLO capacity (make sure the SLO capacity is also not just a random number, but an actual load indicator, or the results will be skewed. so run an experiment to get that numnber as well) (and again, we will test for different percentages and pick the ones that look good after we have the numbers)
+
+3. part 2, agent
+Compare SGlangs L3 storage and us
+We test metrics on NodeA and NodeB transfers. NodeA churning its own requests, and NodeB pulling
+We test for different bytes moved aka diff prefix lengths (again, have it be the same 3 as the one above)
+Setup being A is 80-100% saturated and s churning its own req
+
+Metrics:
+On NodeB:
+- TTFT
+- effective speed
+On NodeA:
+- TPOT p95, against its churn baseline GPU utlisation, CPU utilisation
+
+We should also have some networm metrics over here? 
+
+Have the sglang shared folder be s3 maybe? i am actually not sure on this at all. somewhere on the same network would be nice. or i can have another smaller system just hold the file, like a NFS system. undecided on it
+
+
+
+### sweep experiment done on:
 1x RTX 3090
 
 NOTE: from next time, launch an intance that has the model installed already

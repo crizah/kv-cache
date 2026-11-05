@@ -1,4 +1,4 @@
-package services
+package request
 
 // Offline hasher test using data recorded by probe_events.py.
 //
@@ -25,8 +25,8 @@ import (
 
 // eventSummary is events_summary.json written by probe_events.py.
 type eventSummary struct {
-	IDs1024     []int    `json:"ids_1024_token_ids"`
-	ChainOK     bool     `json:"chain_ok"`
+	IDs1024 []int `json:"ids_1024_token_ids"`
+	ChainOK bool  `json:"chain_ok"`
 }
 
 // decodedFrameH mirrors the decoded JSONL for the hasher test.
