@@ -8,7 +8,7 @@ import (
 )
 
 type Router interface {
-	router(ctx context.Context, R *hasherRes) *RouterRes
+	router(ctx context.Context, R *hasherRes) *node.RouterRes
 }
 
 type KvRouter struct {
@@ -42,11 +42,7 @@ func NewLLRouter(req *RequestService) *LLRouter {
 	return &LLRouter{req: req}
 }
 
-func (r *LLRouter) router(ctx context.Context, R *hasherRes) *RouterRes {
-	// the last used router
-	return nil
-}
-func (r *KvRouter) router(ctx context.Context, R *hasherRes) *RouterRes {
+func (r *KvRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
 	// read all the alive nodes we can use
 	available := r.req.healthTable.GetHealthyNodes(ctx)
 	if len(available.SortedNodes) == 0 {
@@ -72,7 +68,7 @@ func (r *KvRouter) router(ctx context.Context, R *hasherRes) *RouterRes {
 
 	if !R.exists {
 		// cache miss everywhere: send to the healthiest node, no pull
-		return &RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
+		return &node.RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 	}
 
 	// cache hit somewhere. sort the holders by their health status
@@ -102,19 +98,19 @@ func (r *KvRouter) router(ctx context.Context, R *hasherRes) *RouterRes {
 
 	if len(healthyHolders) > 0 {
 		// a healthy node already has the cache: send straight to it, no pull
-		return &RouterRes{NodeD: healthyHolders[0], NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
+		return &node.RouterRes{NodeD: healthyHolders[0], NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 	}
 	if len(loadedHolders) > 0 && r.req.pullWorthIt(R.matched) {
 		// no healthy holder, but the matched prefix is long enough that pulling
 		// from a loaded holder beats recomputing it on the destination:
 		// send to the healthiest node and have it pull from the least loaded holder
-		return &RouterRes{NodeD: dest, NodeP: loadedHolders[0], MetaData: []string{}} // TODO: get metadata we need
+		return &node.RouterRes{NodeD: dest, NodeP: loadedHolders[0], MetaData: []string{}} // TODO: get metadata we need
 	}
 	// no holder we should pull from: recompute on the healthiest node
-	return &RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
+	return &node.RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 }
 
-func (r *RRRouter) router(ctx context.Context, R *hasherRes) *RouterRes {
+func (r *RRRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
 	// does a round robin sitiation, no matter if the node is healthy or not (in the experimental setting, we will only have
 	// "healthy" nodes, the better statement here is no matter if the node is loaded or not)
 	// we need to maintain the last used node
@@ -129,10 +125,10 @@ func (r *RRRouter) router(ctx context.Context, R *hasherRes) *RouterRes {
 		// this is the first req
 		// use the 0th one lol
 		r.req.routeTable.RRMap.CurrentIndex = 0
-		return &RouterRes{NodeD: r.req.routeTable.Nodes[0]}
+		return &node.RouterRes{NodeD: r.req.routeTable.Nodes[0]}
 	}
 	nextNode := nextNode(r.req.routeTable.RRMap.TotalNodes, lastUsed)
-	return &RouterRes{NodeD: r.req.routeTable.Nodes[nextNode]}
+	return &node.RouterRes{NodeD: r.req.routeTable.Nodes[nextNode]}
 }
 
 func nextNode(size int, curr int) int {
@@ -142,7 +138,12 @@ func nextNode(size int, curr int) int {
 	return curr + 1
 }
 
-func (r *CacheRouter) router(ctx context.Context, R *hasherRes) *RouterRes {
+func (r *CacheRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
 	// implement the CacheRoute logic based on the load events we get from healthyNodes
 	return nil
+}
+
+func (r *LLRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
+	// the least loaded node
+	return r.req.healthTable.LLRoute()
 }

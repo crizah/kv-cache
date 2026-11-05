@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"math"
 	"reflect"
 	"slices"
 	"sync"
@@ -66,7 +67,7 @@ type HealthTable struct {
 }
 
 type NodeInfo struct {
-	node.Node           // embedded: ID, AgentURL, KVEventsAddr, LoadAddr
+	node.Node   // embedded: ID, AgentURL, KVEventsAddr, LoadAddr
 	Status      Status
 	RunningReqs int64
 	WaitingReqs int64
@@ -154,6 +155,23 @@ func (table *HealthTable) record(node string, stat *LoadStat) {
 		info.Status = StatusLoaded
 	}
 	info.timestamp = time.Now()
+}
+
+func (table *HealthTable) LLRoute() *node.RouterRes {
+	// gives us the least load node
+	table.mx.RLock()
+	defer table.mx.RUnlock()
+
+	// just get the one with the least running req
+	minLoad := math.MaxInt64
+	var n node.Node
+	for _, l := range table.table {
+		if int(l.RunningReqs) <= minLoad {
+			minLoad = int(l.RunningReqs)
+			n = l.Node
+		}
+	}
+	return &node.RouterRes{NodeD: n}
 }
 
 func (table *HealthTable) markUnhealthy(node string) {

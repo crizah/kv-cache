@@ -297,6 +297,10 @@ func listenNode(ctx context.Context, addr string, node string, ch chan<- *KVEven
 
 }
 
+func (table *RouteTable) LLRouter() {
+
+}
+
 func decodeBatch(seq uint64, payload []byte) *KVEventBatch {
 	// NOTE: keep array_like=True on the python side
 	// array [ts:float64, events:[]any, attn_dp_rank:int|nil]

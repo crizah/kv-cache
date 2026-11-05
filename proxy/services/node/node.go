@@ -8,3 +8,10 @@ type Node struct {
 	KVEventsAddr string // ip:port        — ZMQ KV events PUB socket (SGLang publishes, proxy subscribes)
 	LoadAddr     string // ip:port        — ZMQ load publisher socket (SGLang publishes, proxy subscribes)
 }
+
+// for sharing purposes
+type RouterRes struct {
+	NodeD    Node     // the node to send the req to
+	NodeP    Node     // the node to pull the req from; zero value (ID == "") means no pull
+	MetaData []string // the metadata needed to send with a pull req (the matched hash)
+}

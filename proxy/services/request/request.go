@@ -99,7 +99,7 @@ func NewRequestService(cfg Config, input string, nodes []node.Node, table *route
 	}, nil
 }
 
-func (req *RequestService) HandleReq(ctx context.Context) (*RouterRes, error) {
+func (req *RequestService) HandleReq(ctx context.Context) (*node.RouterRes, error) {
 	// toeknise her
 	encoded, err := req.tokenise()
 	if err != nil {
@@ -132,13 +132,7 @@ func (req *RequestService) HandleReq(ctx context.Context) (*RouterRes, error) {
 	return node, nil
 }
 
-type RouterRes struct {
-	NodeD    node.Node // the node to send the req to
-	NodeP    node.Node // the node to pull the req from; zero value (ID == "") means no pull
-	MetaData []string  // the metadata needed to send with a pull req (the matched hash)
-}
-
-func (req *RequestService) router(ctx context.Context, R *hasherRes) *RouterRes {
+func (req *RequestService) router(ctx context.Context, R *hasherRes) *node.RouterRes {
 	// read all the alive nodes we can use
 	available := req.healthTable.GetHealthyNodes(ctx)
 	if len(available.SortedNodes) == 0 {
@@ -164,7 +158,7 @@ func (req *RequestService) router(ctx context.Context, R *hasherRes) *RouterRes 
 
 	if !R.exists {
 		// cache miss everywhere: send to the healthiest node, no pull
-		return &RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
+		return &node.RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 	}
 
 	// cache hit somewhere. sort the holders by their health status
@@ -194,16 +188,16 @@ func (req *RequestService) router(ctx context.Context, R *hasherRes) *RouterRes 
 
 	if len(healthyHolders) > 0 {
 		// a healthy node already has the cache: send straight to it, no pull
-		return &RouterRes{NodeD: healthyHolders[0], NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
+		return &node.RouterRes{NodeD: healthyHolders[0], NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 	}
 	if len(loadedHolders) > 0 && req.pullWorthIt(R.matched) {
 		// no healthy holder, but the matched prefix is long enough that pulling
 		// from a loaded holder beats recomputing it on the destination:
 		// send to the healthiest node and have it pull from the least loaded holder
-		return &RouterRes{NodeD: dest, NodeP: loadedHolders[0], MetaData: []string{}} // TODO: get metadata we need
+		return &node.RouterRes{NodeD: dest, NodeP: loadedHolders[0], MetaData: []string{}} // TODO: get metadata we need
 	}
 	// no holder we should pull from: recompute on the healthiest node
-	return &RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
+	return &node.RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 }
 
 // pullWorthIt reports whether a matched prefix of matchedPages pages is long
