@@ -124,7 +124,7 @@ def load_docs(length: int, l_docs_dir: str, tokenizer_path: str, seed: int) -> l
 
 async def _warm_node_async(sglang_url: str, docs: list[dict], rng: random.Random):
     connector = aiohttp.TCPConnector(limit=0)
-    timeout   = aiohttp.ClientTimeout(total=300)
+    timeout   = aiohttp.ClientTimeout(total=1200)
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
         async def _one(doc):
             suffix = rand_ids(rng, SUFFIX_TOKENS)
