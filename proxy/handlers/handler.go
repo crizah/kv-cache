@@ -102,6 +102,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.Header().Add(k, v)
 			}
 		}
+		if reqID := r.Header.Get("X-Request-Id"); reqID != "" {
+			w.Header().Set("X-Request-Id", reqID)
+		}
+		w.Header().Set("X-Served-By", res.NodeD.ID)
+		if res.NodeP.ID != "" {
+			w.Header().Set("X-Pulled-From", res.NodeP.ID)
+		}
 		w.WriteHeader(result.resp.StatusCode)
 		io.Copy(w, result.resp.Body) //nolint:errcheck
 	case <-reqCtx.Done():
