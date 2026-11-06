@@ -53,15 +53,16 @@ def rand_ids(rng: random.Random, n: int) -> list[int]:
     return [rng.randint(TOKEN_MIN, TOKEN_MAX) for _ in range(n)]
 
 
-def load_node_urls(config_path: str, node_id: str) -> tuple[str, str]:
+def load_node_urls(config_path: str, node_id: str, host_override: str | None = None) -> tuple[str, str]:
     with open(config_path) as f:
         cfg = json.load(f)
     nodes = {n["id"]: n for n in cfg["nodes"]}
     if node_id not in nodes:
         raise SystemExit(f"Node id {node_id!r} not found in config. Available: {list(nodes)}")
     n = nodes[node_id]
-    agent_url  = f"http://{n['ip']}:{n['http']}"
-    sglang_url = f"http://{n['ip']}:{n['sglang']}"
+    host = host_override if host_override else n["ip"]
+    agent_url  = f"http://{host}:{n['http']}"
+    sglang_url = f"http://{host}:{n['sglang']}"
     return agent_url, sglang_url
 
 
@@ -140,6 +141,8 @@ def main():
                     help="Path to config.json (default: ../config.json relative to script)")
     ap.add_argument("--node-id", default="A", dest="node_id",
                     help="Node id to target from config (default: A)")
+    ap.add_argument("--host", default=None,
+                    help="Override the node IP from config (e.g. localhost when running on the same container)")
     ap.add_argument("--length", type=int, required=True, choices=[2048, 8192, 16384, 24576],
                     help="Prefix length being tested (tokens)")
     ap.add_argument("--saturation", type=int, default=75,
@@ -160,7 +163,7 @@ def main():
     print(f"length={args.length}  MSP={msp:.3f} req/s  "
           f"saturation={args.saturation}%  target rate={rate:.3f} req/s")
 
-    agent_url, _ = load_node_urls(args.config, args.node_id)
+    agent_url, _ = load_node_urls(args.config, args.node_id, args.host)
     print(f"Node {args.node_id!r}: agent={agent_url}")
 
     docs = load_docs(args.length, args.l_docs_dir)

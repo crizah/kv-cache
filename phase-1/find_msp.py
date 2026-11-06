@@ -233,17 +233,19 @@ def run_step(agent_url: str, sglang_url: str, docs: list[dict],
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
-def load_node_urls(config_path: str, node_id: str) -> tuple[str, str]:
-    """Return (agent_url, sglang_url) for the given node id from config.json."""
+def load_node_urls(config_path: str, node_id: str, host_override: str | None = None) -> tuple[str, str]:
+    """Return (agent_url, sglang_url) for the given node id from config.json.
+    Pass host_override='localhost' when running on the same container as the node.
+    """
     with open(config_path) as f:
         cfg = json.load(f)
     nodes = {n["id"]: n for n in cfg["nodes"]}
     if node_id not in nodes:
         raise SystemExit(f"Node id {node_id!r} not found in config. Available: {list(nodes)}")
     n = nodes[node_id]
-    ip = n["ip"]
-    agent_url  = f"http://{ip}:{n['http']}"
-    sglang_url = f"http://{ip}:{n['sglang']}"
+    host = host_override if host_override else n["ip"]
+    agent_url  = f"http://{host}:{n['http']}"
+    sglang_url = f"http://{host}:{n['sglang']}"
     return agent_url, sglang_url
 
 
@@ -255,6 +257,8 @@ def main():
                     help="Path to config.json (default: ../config.json relative to this script)")
     ap.add_argument("--node-id", default="A", dest="node_id",
                     help="Node id to target from config (default: A)")
+    ap.add_argument("--host", default=None,
+                    help="Override the node IP from config (e.g. localhost when running on the same container)")
     ap.add_argument("--length", type=int, required=True, choices=[2048, 8192, 16384, 24576],
                     help="Prefix length to test (tokens)")
     ap.add_argument("--gen-only", action="store_true",
@@ -275,7 +279,7 @@ def main():
     docs = load_docs(args.length, args.l_docs_dir, tokenizer_path, args.seed)
     rng = random.Random(args.seed)
 
-    agent_url, sglang_url = load_node_urls(args.config, args.node_id)
+    agent_url, sglang_url = load_node_urls(args.config, args.node_id, args.host)
     print(f"Targeting node {args.node_id!r}: agent={agent_url}  sglang={sglang_url}")
 
     out_dir = Path(args.out_dir)
