@@ -1,6 +1,6 @@
 {
   "model": "Qwen3-32B",
-  "model_path": "Qwen/Qwen3-32B",
+  "model_path": "../models/Qwen/Qwen3-32B",
   "cpu_offload_gb": 0,
   "mem_fraction_static": 0.85,
   "router": "kv",
@@ -19,7 +19,7 @@
     },
     "Qwen3-32B": {
       "page_size": 64,
-      "tokenizer_path": "configs/Qwen3-32B/tokenizer.json",
+      "tokenizer_path": "proxy/configs/Qwen3-32B/tokenizer.json",
       "pull_threshold_tokens": 5000
     }
   },
