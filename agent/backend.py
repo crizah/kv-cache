@@ -31,6 +31,7 @@ class AgentBackend(HiCacheStorage):
         config_path = extra.get("config_path", CONFIG_PATH)
 
         self.cfg = load_config(config_path, self_name)
+        os.makedirs(self.cfg.meta_dir, exist_ok=True)
         self.nixl_svc = NixlService(self_name)
 
         self.local_keys: dict[int, tuple] = {}  # hash -> (k_ptr, v_ptr, elem_bytes)

@@ -34,12 +34,15 @@ def main():
         raw = __import__("json").load(f)
 
     peer_name = next(n["id"] for n in raw["nodes"] if n["id"] != args.self_name)
-    backend_module = os.path.abspath(
-        os.path.join(os.path.dirname(config_path), cfg.backend_module_path)
-    )
+    repo_root = os.path.dirname(config_path)
+
+    # module_path must be a Python importable name (not a file path);
+    # repo_root is added to PYTHONPATH so `agent.backend` resolves correctly
+    module_path = cfg.backend_module_path.replace("/", ".").removesuffix(".py")
 
     extra_cfg = json.dumps({
-        "module_path":  backend_module,
+        "backend_name": "agent_backend",
+        "module_path":  module_path,
         "class_name":   "AgentBackend",
         "self_name":    cfg.self_name,
         "peer_name":    peer_name,
@@ -64,6 +67,7 @@ def main():
         "SGLANG_EXTRA_CFG":      extra_cfg,
     }
 
+    print(f"export PYTHONPATH={q(repo_root)}")
     for k, v in exports.items():
         print(f"export {k}={q(v)}")
 
