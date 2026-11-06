@@ -337,3 +337,6 @@ export CUDA_MPS_PIPE_DIRECTORY=/tmp/mps CUDA_MPS_LOG_DIRECTORY=/tmp/mps-log
 mkdir -p /tmp/mps /tmp/mps-log
 nvidia-cuda-mps-control -d
 export CUDA_MPS_ACTIVE_THREAD_PERCENTAGE=<PCT>
+
+/exp2/launch_node.sh A 0 30000 8765 http://nodeB:8766
+/exp2/launch_node.sh B 0 30000 8766 http://nodeA:8765

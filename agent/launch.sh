@@ -2,7 +2,7 @@
 set -euo pipefail
 
 exec python3 -m sglang.launch_server \
-    --model                                "$SGLANG_MODEL_PATH"    \
+    --model-path                           "$SGLANG_MODEL_PATH"    \
     --port                                 "$SGLANG_PORT"          \
     --page-size                            "$SGLANG_PAGE_SIZE"     \
     --kv-events-config                     "$SGLANG_KV_EVENTS_CFG" \
