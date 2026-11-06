@@ -40,7 +40,7 @@ def main():
 
     extra_cfg = json.dumps({
         "module_path":  backend_module,
-        "class_name":   "PeerNixlStorage",
+        "class_name":   "AgentBackend",
         "self_name":    cfg.self_name,
         "peer_name":    peer_name,
         "config_path":  config_path,
