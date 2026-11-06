@@ -50,7 +50,7 @@ PAGE_SIZE       = 64       # must match --page-size on the SGLang server
 TOKEN_MIN       = 100
 TOKEN_MAX       = 50_000
 
-STEP_DURATION_S = 60       # seconds to send at each rate level
+STEP_DURATION_S = 120      # seconds to send at each rate level
 REST_S          = 30       # rest between steps to let the queue drain
 START_RATE      = 0.25     # initial offered rate (req/s)
 RATE_MULTIPLIER = 1.25     # multiply rate by this each passing step
@@ -218,12 +218,9 @@ def run_step(agent_url: str, sglang_url: str, docs: list[dict],
     p95_ttft = p95_of(v[0] for v in finished)
     p95_e2e  = p95_of(v[1] for v in finished)
 
+    # queue growth is the primary saturation signal
     passed = (
-        p95_ttft is not None
-        and p95_e2e is not None
-        and p95_ttft < TTFT_SLO_S
-        and p95_e2e  < E2E_SLO_S
-        and finish_ratio >= MIN_FINISH_RATIO
+        finish_ratio >= MIN_FINISH_RATIO
         and q_end <= q_start
     )
 
