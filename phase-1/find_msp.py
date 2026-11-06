@@ -122,19 +122,31 @@ def load_docs(length: int, l_docs_dir: str, tokenizer_path: str, seed: int) -> l
 
 # ── warm-up ───────────────────────────────────────────────────────────────────
 
-def warm_node(sglang_url: str, docs: list[dict], rng: random.Random):
-    """Send each of the L documents once so they're in nodeA's KV cache."""
-    print(f"Warming nodeA with {len(docs)} documents…")
-    for i, doc in enumerate(docs):
-        suffix = rand_ids(rng, SUFFIX_TOKENS)
-        payload = {
-            "input_ids": doc["ids"] + suffix,
-            "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
-            "stream": False,
-        }
-        requests.post(f"{sglang_url}/generate", json=payload, timeout=180).raise_for_status()
-        print(f"  warmed {i + 1}/{len(docs)}", end="\r", flush=True)
+async def _warm_node_async(sglang_url: str, docs: list[dict], rng: random.Random):
+    connector = aiohttp.TCPConnector(limit=0)
+    timeout   = aiohttp.ClientTimeout(total=300)
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        async def _one(doc):
+            suffix = rand_ids(rng, SUFFIX_TOKENS)
+            payload = {
+                "input_ids": doc["ids"] + suffix,
+                "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
+                "stream": False,
+            }
+            async with session.post(f"{sglang_url}/generate", json=payload) as resp:
+                resp.raise_for_status()
+                await resp.read()
+
+        tasks = [asyncio.create_task(_one(doc)) for doc in docs]
+        for i, t in enumerate(asyncio.as_completed(tasks)):
+            await t
+            print(f"  warmed {i + 1}/{len(docs)}", end="\r", flush=True)
     print()
+
+
+def warm_node(sglang_url: str, docs: list[dict], rng: random.Random):
+    print(f"Warming nodeA with {len(docs)} documents…")
+    asyncio.run(_warm_node_async(sglang_url, docs, rng))
 
 
 # ── open-loop async request ───────────────────────────────────────────────────
