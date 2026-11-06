@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 import requests
@@ -176,7 +176,7 @@ class AgentBackend(HiCacheStorage):
             def log_message(self, fmt, *args):
                 logger.debug(f"[http] {self.address_string()} {fmt % args}")
 
-        srv = HTTPServer(("0.0.0.0", self.cfg.http_port), Handler)
+        srv = ThreadingHTTPServer(("0.0.0.0", self.cfg.http_port), Handler)
         t = threading.Thread(target=srv.serve_forever, daemon=True)
         t.start()
         logger.info(f"{TAG} HTTP server on 0.0.0.0:{self.cfg.http_port}")

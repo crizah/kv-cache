@@ -122,7 +122,7 @@ def load_docs(length: int, l_docs_dir: str, tokenizer_path: str, seed: int) -> l
 
 # ── warm-up ───────────────────────────────────────────────────────────────────
 
-def warm_node(agent_url: str, docs: list[dict], rng: random.Random):
+def warm_node(sglang_url: str, docs: list[dict], rng: random.Random):
     """Send each of the L documents once so they're in nodeA's KV cache."""
     print(f"Warming nodeA with {len(docs)} documents…")
     for i, doc in enumerate(docs):
@@ -132,16 +132,16 @@ def warm_node(agent_url: str, docs: list[dict], rng: random.Random):
             "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
             "stream": False,
         }
-        requests.post(f"{agent_url}/generate", json=payload, timeout=180).raise_for_status()
+        requests.post(f"{sglang_url}/generate", json=payload, timeout=180).raise_for_status()
         print(f"  warmed {i + 1}/{len(docs)}", end="\r", flush=True)
     print()
 
 
 # ── open-loop async request ───────────────────────────────────────────────────
 
-async def _send_one(session: "aiohttp.ClientSession", agent_url: str,
+async def _send_one(session: "aiohttp.ClientSession", sglang_url: str,
                     doc: dict, seed: int, scheduled_at: float) -> dict:
-    """Fire one streaming request; return timing dict. TTFT measured from actual send time."""
+    """Fire one streaming request directly to SGLang; return timing dict."""
     rng = random.Random(seed)
     suffix = rand_ids(rng, SUFFIX_TOKENS)
     payload = {
@@ -154,7 +154,7 @@ async def _send_one(session: "aiohttp.ClientSession", agent_url: str,
     ttft = None
     t_last = None
     try:
-        async with session.post(f"{agent_url}/generate", json=payload) as resp:
+        async with session.post(f"{sglang_url}/generate", json=payload) as resp:
             resp.raise_for_status()
             async for line in resp.content:
                 line = line.strip()
@@ -172,18 +172,20 @@ async def _send_one(session: "aiohttp.ClientSession", agent_url: str,
 
 # ── one rate step ─────────────────────────────────────────────────────────────
 
+POST_STEP_GRACE_S = 60     # seconds after step end to wait for in-flight requests
+QUEUE_GROWTH_MAX  = 2      # max allowed growth in waiting queue
+
 async def _run_step_async(agent_url: str, sglang_url: str, docs: list[dict],
                           rate: float, rng: random.Random) -> dict:
     connector = aiohttp.TCPConnector(limit=0)
     timeout   = aiohttp.ClientTimeout(total=300)
 
-    q_start = waiting_queue(sglang_url)
-    t0      = time.perf_counter()
+    q_start  = waiting_queue(sglang_url)
+    t0       = time.perf_counter()
     deadline = t0 + STEP_DURATION_S
 
-    tasks   = []
-    schedule_misses = 0
-    sent    = 0
+    tasks = []
+    sent  = 0
 
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
         while time.perf_counter() < deadline:
@@ -191,27 +193,30 @@ async def _run_step_async(agent_url: str, sglang_url: str, docs: list[dict],
             doc  = docs[rng.randrange(len(docs))]
             seed = rng.randint(0, 2**31)
             tasks.append(asyncio.create_task(
-                _send_one(session, agent_url, doc, seed, scheduled_at)
+                _send_one(session, sglang_url, doc, seed, scheduled_at)
             ))
             sent += 1
 
-            gap  = -math.log(max(rng.random(), 1e-9)) / rate
-            wake = time.perf_counter() + gap
-            remaining = wake - time.perf_counter()
+            gap       = -math.log(max(rng.random(), 1e-9)) / rate
+            remaining = (time.perf_counter() + gap) - time.perf_counter()
             if remaining > 0:
                 await asyncio.sleep(remaining)
 
-        # wait up to STEP_DURATION_S for all in-flight requests to finish
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # wait up to POST_STEP_GRACE_S for in-flight requests to finish
+        done, pending = await asyncio.wait(tasks, timeout=POST_STEP_GRACE_S)
+        for t in pending:
+            t.cancel()
+
+    raw_results = [t.result() if t in done and not t.exception() else None for t in tasks]
 
     q_end = waiting_queue(sglang_url)
 
-    finished = [r for r in results if isinstance(r, dict) and r["ttft"] is not None]
+    finished     = [r for r in raw_results if isinstance(r, dict) and r["ttft"] is not None]
     finish_ratio = len(finished) / sent if sent else 0.0
 
-    late = sum(1 for r in results if isinstance(r, dict) and r["start_lateness"] > 1.0)
-    late_pct = late / sent if sent else 0.0
-    schedule_ok = late_pct <= 0.01
+    late         = sum(1 for r in raw_results if isinstance(r, dict) and r["start_lateness"] > 1.0)
+    late_pct     = late / sent if sent else 0.0
+    schedule_ok  = late_pct <= 0.01
 
     def p95_of(vals):
         s = sorted(v for v in vals if v is not None)
@@ -220,11 +225,12 @@ async def _run_step_async(agent_url: str, sglang_url: str, docs: list[dict],
     p95_ttft = p95_of(r["ttft"] for r in finished)
     p95_e2e  = p95_of(r["e2e"]  for r in finished)
 
-    # queue growth is the primary saturation signal; also invalidate if schedule slipped
     passed = (
         schedule_ok
         and finish_ratio >= MIN_FINISH_RATIO
-        and q_end <= q_start
+        and q_end <= q_start + QUEUE_GROWTH_MAX
+        and p95_ttft is not None and p95_ttft < TTFT_SLO_S
+        and p95_e2e  is not None and p95_e2e  < E2E_SLO_S
     )
 
     return {
@@ -304,7 +310,7 @@ def main():
     msp_path   = out_dir / f"msp_{args.length}.json"
 
     flush_cache(sglang_url)
-    warm_node(agent_url, docs, rng)
+    warm_node(sglang_url, docs, rng)
 
     rows: list[dict] = []
     rate = START_RATE
