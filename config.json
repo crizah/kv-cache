@@ -16,6 +16,11 @@
       "page_size": 64,
       "tokenizer_path": "configs/Qwen3-0.6B/tokenizer.json",
       "pull_threshold_tokens": 50000
+    },
+    "Qwen3-32B": {
+      "page_size": 64,
+      "tokenizer_path": "configs/Qwen3-32B/tokenizer.json",
+      "pull_threshold_tokens": 5000
     }
   },
   "listen_addr": ":8080",
@@ -24,7 +29,7 @@
     { "id": "B", "ip": "FILL_ME", "http": "9101", "kv_events": "5559", "load": "6001", "sglang": "8001"}
   ],
   "health": {
-    "waiting_weight": 1.0,
+    "waiting_weight": 2.0,
     "loaded_threshold": 8
   },
   "request_timeout_sec": 120,

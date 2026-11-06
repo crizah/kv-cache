@@ -9,5 +9,7 @@ exec python3 -m sglang.launch_server \
     --load-publish-endpoint                "$SGLANG_LOAD_ENDPOINT" \
     --cpu-offload-gb                       "$SGLANG_CPU_OFFLOAD_GB"\
     --mem-fraction-static                  "$SGLANG_MEM_FRACTION"  \
+    --stream-interval                       1\
+    --enable-metrics \
     --hicache-storage-backend              dynamic                  \
     --hicache-storage-backend-extra-config "$SGLANG_EXTRA_CFG"
