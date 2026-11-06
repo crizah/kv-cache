@@ -13,6 +13,7 @@ import (
 	"github.com/crizah/KV/proxy/handlers"
 	"github.com/crizah/KV/proxy/services/health"
 	"github.com/crizah/KV/proxy/services/router"
+	"github.com/crizah/KV/proxy/services/usage"
 	"github.com/joho/godotenv"
 )
 
@@ -46,6 +47,10 @@ func main() {
 	// health table, kept up to date in the background by the nodes' load publisher
 	healthTable := health.NewHealthTable(nodes, cfg.healthConfig())
 	go healthTable.CheckHealth(ctx)
+
+	// usage table, polled every 5s from each node's /metrics endpoint
+	usageTable := usage.NewUsageTable(nodes)
+	usageTable.Poll(ctx)
 
 	h := handlers.NewHandler(
 		cfg.requestServiceConfig(),

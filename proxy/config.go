@@ -30,6 +30,7 @@ func (n NodeConfig) toNode() (node.Node, error) {
 		AgentURL:     "http://" + n.IP + ":" + n.HTTP,
 		KVEventsAddr: n.IP + ":" + n.KVEvents,
 		LoadAddr:     n.IP + ":" + n.Load,
+		MetricsURL:   "http://" + n.IP + ":" + n.SGLang + "/metrics",
 	}, nil
 }
 

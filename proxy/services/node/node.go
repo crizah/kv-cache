@@ -7,6 +7,7 @@ type Node struct {
 	AgentURL     string // http://ip:port — proxy forwards requests here; agent sits in front of SGLang
 	KVEventsAddr string // ip:port        — ZMQ KV events PUB socket (SGLang publishes, proxy subscribes)
 	LoadAddr     string // ip:port        — ZMQ load publisher socket (SGLang publishes, proxy subscribes)
+	MetricsURL   string // http://ip:port/metrics — Prometheus endpoint (SGLang --enable-metrics)
 }
 
 // for sharing purposes

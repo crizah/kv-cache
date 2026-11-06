@@ -67,11 +67,12 @@ this maintains a load of x of MSP, where MSP for that prefix length is determine
 
 for that prefix length, it looks is the L document, at startup, warms nodeA with those L documents, and then maintains the x load on nodeA (for x , the script sends 0.x*MSP reqs per second with random gaps) by sending requests of random suffix lengths, but reuses the prefixes from L, so as to ensure we dont evict them.
 
-- script to test if the kv events and load events are being written to the proxy (just a one off test)
-client: proxy?
+- script to test if the kv events and load events and usage events are being written to the proxy (just a one off test)
+client: proxy? im not sure on it
 
 - the actual exp script
 client: proxy
+sends each req through the proxy and measures
 
 again, flag for the prefix length we are testing rn
 this script sends 75 total requests, we a 2:1 ratio for cached vs new. the cached requests (50) will get a random 128 token suffix attached. and the new ones will be the same length as prefix_lenght+suffix length
@@ -80,10 +81,13 @@ we measure for
 - TTFT(time from sending a request to the first streamed token), 
 - end-to-end latency(time from sending to last token),
 - TPOT (end-to-end minus TTFT) divided by (output tokens minus 1). With --stream-interval 1, each streamed chunk is one token)
-- cache hit rate (cached tokens over prompt tokens)
+- cache hit rate (cached tokens over prompt tokens) (max, arounf 65%)
 
-Cache hit rate comes from the node’s response. SGLang reports cached_tokens and prompt_tokens in the response’s meta_info, so the client reads both and divides them. The proxy must pass the stream through unchanged, or that field is lost.
+Cache hit rate. For every request, read cached_tokens and prompt_tokens from the meta_info in the last streamed chunk of the node’s /generate response. The proxy streams the response through unchanged, so no proxy change is needed. Hit rate for a request is cached_tokens / prompt_tokens. Report the mean over all 75 measured requests, and separately over the 50 cached-document requests.
 
-The proxy adds its routing decision. Have it return headers like X-Served-By (the node that answered) and X-Pulled-From (set if a pull happened). Log these with each request, so you can say what share of requests were routed to A, spilled to B, or pulled.
+For each request, also record which node served it: read the X-Served-By response header if the proxy sends one (the proxy will add this), and if it’s missing, leave the column empty
 
-I am pretty sure this isnt done yet, so we need to do this to get the actual cache hit rate
+TODO in the proxy:
+the proxy needs to put the chosen node in its response header 
+
+- add logs in the proxy for who this req was sent to
