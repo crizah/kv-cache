@@ -54,7 +54,8 @@ STEP_DURATION_S = 60       # seconds to send at each rate level
 REST_S          = 30       # rest between steps to let the queue drain
 START_RATE      = 0.25     # initial offered rate (req/s)
 RATE_MULTIPLIER = 1.25     # multiply rate by this each passing step
-TTFT_SLO_S      = 3.0      # p95 TTFT must stay below this (seconds)
+TTFT_SLO_S      = 10.0     # p95 TTFT must stay below this (seconds)
+E2E_SLO_S       = 30.0     # p95 end-to-end latency must stay below this (seconds)
 MIN_FINISH_RATIO = 0.95    # fraction of sent requests that must complete
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -138,7 +139,7 @@ def warm_node(agent_url: str, docs: list[dict], rng: random.Random):
 # ── single-request worker ─────────────────────────────────────────────────────
 
 def _send_one(agent_url: str, doc: dict, seed: int, out: list, slot: int):
-    """Send one streaming request and record TTFT in out[slot] (None = failed)."""
+    """Send one streaming request; store (ttft, e2e) in out[slot], or None on failure."""
     rng = random.Random(seed)
     suffix = rand_ids(rng, SUFFIX_TOKENS)
     payload = {
@@ -148,18 +149,21 @@ def _send_one(agent_url: str, doc: dict, seed: int, out: list, slot: int):
     }
     t0 = time.perf_counter()
     ttft = None
+    t_last = None
     try:
         with requests.post(f"{agent_url}/generate", json=payload, stream=True, timeout=180) as resp:
             resp.raise_for_status()
             for raw in resp.iter_lines():
                 if not raw:
                     continue
+                now = time.perf_counter()
                 if ttft is None:
-                    ttft = time.perf_counter() - t0
-                # drain remaining chunks so the connection closes cleanly
+                    ttft = now - t0
+                t_last = now
     except Exception:
         pass
-    out[slot] = ttft
+    e2e = (t_last - t0) if t_last is not None else None
+    out[slot] = (ttft, e2e)
 
 
 # ── one rate step ─────────────────────────────────────────────────────────────
@@ -207,14 +211,18 @@ def run_step(agent_url: str, sglang_url: str, docs: list[dict],
     sent = len(results)
     finish_ratio = len(finished) / sent if sent else 0.0
 
-    p95: float | None = None
-    if finished:
-        s = sorted(finished)
-        p95 = s[int(0.95 * len(s))]
+    def p95_of(vals):
+        s = sorted(v for v in vals if v is not None)
+        return s[int(0.95 * len(s))] if s else None
+
+    p95_ttft = p95_of(v[0] for v in finished)
+    p95_e2e  = p95_of(v[1] for v in finished)
 
     passed = (
-        p95 is not None
-        and p95 < TTFT_SLO_S
+        p95_ttft is not None
+        and p95_e2e is not None
+        and p95_ttft < TTFT_SLO_S
+        and p95_e2e  < E2E_SLO_S
         and finish_ratio >= MIN_FINISH_RATIO
         and q_end <= q_start
     )
@@ -224,7 +232,8 @@ def run_step(agent_url: str, sglang_url: str, docs: list[dict],
         "sent": sent,
         "finished": len(finished),
         "finish_ratio": round(finish_ratio, 3),
-        "p95_ttft_s": round(p95, 3) if p95 is not None else None,
+        "p95_ttft_s": round(p95_ttft, 3) if p95_ttft is not None else None,
+        "p95_e2e_s":  round(p95_e2e,  3) if p95_e2e  is not None else None,
         "q_start": q_start,
         "q_end": q_end,
         "passed": passed,
@@ -294,7 +303,7 @@ def main():
     rate = START_RATE
     last_passing_rate: float | None = None
 
-    header = f"{'rate':>8}  {'sent':>5}  {'fin':>5}  {'ratio':>6}  {'p95_ttft':>10}  {'q_start':>7}  {'q_end':>6}  {'':>5}"
+    header = f"{'rate':>8}  {'sent':>5}  {'fin':>5}  {'ratio':>6}  {'p95_ttft':>10}  {'p95_e2e':>9}  {'q_start':>7}  {'q_end':>6}  {'':>5}"
     print(f"\n{header}")
     print("-" * len(header))
 
@@ -302,12 +311,13 @@ def main():
         row = run_step(agent_url, sglang_url, docs, rate, rng)
         rows.append(row)
 
-        p95_str = f"{row['p95_ttft_s']:.3f}s" if row["p95_ttft_s"] is not None else "    N/A"
+        ttft_str = f"{row['p95_ttft_s']:.2f}s" if row["p95_ttft_s"] is not None else "   N/A"
+        e2e_str  = f"{row['p95_e2e_s']:.2f}s"  if row["p95_e2e_s"]  is not None else "   N/A"
         result_str = "PASS" if row["passed"] else "FAIL"
         print(
             f"{row['rate']:>8.3f}  {row['sent']:>5}  {row['finished']:>5}  "
-            f"{row['finish_ratio']:>6.3f}  {p95_str:>10}  {row['q_start']:>7}  "
-            f"{row['q_end']:>6}  {result_str:>5}"
+            f"{row['finish_ratio']:>6.3f}  {ttft_str:>10}  {e2e_str:>9}  "
+            f"{row['q_start']:>7}  {row['q_end']:>6}  {result_str:>5}"
         )
 
         with open(table_path, "w") as f:
