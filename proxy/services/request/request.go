@@ -114,6 +114,10 @@ func (req *RequestService) HandleReq(ctx context.Context) (*node.RouterRes, erro
 	}
 
 	var router Router
+	meta := &meta{
+		numTokens:  int64(len(encoded)),
+		matchedTok: int64(N.matched),
+	}
 
 	switch req.routerType {
 	case "kv":
@@ -126,7 +130,7 @@ func (req *RequestService) HandleReq(ctx context.Context) (*node.RouterRes, erro
 		router = NewLLRouter(req)
 	}
 
-	node := router.router(ctx, N)
+	node := router.router(ctx, N, meta)
 	if node == nil {
 		// TODO: add a retry with a buffer here
 		return nil, fmt.Errorf("no healthy nodes")

@@ -11,7 +11,7 @@ import (
 )
 
 type Router interface {
-	router(ctx context.Context, R *hasherRes) *node.RouterRes
+	router(ctx context.Context, R *hasherRes, meta *meta) *node.RouterRes
 }
 
 type KvRouter struct {
@@ -27,7 +27,10 @@ type LLRouter struct {
 }
 
 type CacheRouter struct {
-	req                *RequestService
+	req    *RequestService
+	params *params
+}
+type params struct {
 	alpha, beta, gamma float64 // non-negative, sum to 1, Alpha > Beta
 	a, b, c            float64 // TTFT model coefficients (calibrated)
 	tMax               float64 // p99 TTFT from calibration window, seconds
@@ -43,13 +46,14 @@ func NewRRRouter(req *RequestService) *RRRouter {
 
 func NewCacheRouter(req *RequestService) *CacheRouter {
 	// todo: hardcode values for the constants here
-	return &CacheRouter{req: req}
+	p := &params{alpha: 0.5, beta: 0.3, gamma: 0.2}
+	return &CacheRouter{req: req, params: p}
 }
 func NewLLRouter(req *RequestService) *LLRouter {
 	return &LLRouter{req: req}
 }
 
-func (r *KvRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
+func (r *KvRouter) router(ctx context.Context, R *hasherRes, meta *meta) *node.RouterRes {
 	// read all the alive nodes we can use
 	available := r.req.healthTable.GetHealthyNodes(ctx)
 	if len(available.SortedNodes) == 0 {
@@ -117,7 +121,7 @@ func (r *KvRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
 	return &node.RouterRes{NodeD: dest, NodeP: node.Node{}, MetaData: []string{}} // TODO: get metadata we need
 }
 
-func (r *RRRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
+func (r *RRRouter) router(ctx context.Context, R *hasherRes, meta *meta) *node.RouterRes {
 	// does a round robin sitiation, no matter if the node is healthy or not (in the experimental setting, we will only have
 	// "healthy" nodes, the better statement here is no matter if the node is loaded or not)
 	// we need to maintain the last used node
@@ -142,46 +146,41 @@ func nextNode(size int, curr int) int {
 	return curr + 1
 }
 
-func (r *CacheRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
-	// implement the CacheRoute logic based on the load events we get from healthyNodes
-	return nil
+type meta struct {
+	numTokens  int64
+	matchedTok int64
 }
 
-func (r *LLRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
+func (r *CacheRouter) router(ctx context.Context, R *hasherRes, meta *meta) *node.RouterRes {
+	// implement the CacheRoute logic based on the load events we get from healthyNodes
+	var best node.Node
+	bestScore := math.Inf(-1)
+	nodes := r.req.routeTable.Nodes
+	for _, n := range nodes {
+		q, mT := r.req.healthTable.GetInfo(n.ID)
+		kvUsage := meta.numTokens / mT // num_tokens / max_total_num_tokens
+		if s := score(r.params, nTokens, float64(q), float64(kvUsage), int(meta.matchedTok)); s > bestScore {
+			best, bestScore = n, s
+		}
+	}
+	return &node.RouterRes{NodeD: best}
+}
+
+func (r *LLRouter) router(ctx context.Context, R *hasherRes, meta *meta) *node.RouterRes {
 	// the least loaded node
 	return r.req.healthTable.LLRoute()
 }
 
-type Params struct {
-}
-
-type NodeState struct {
-	Name       string
-	MatchedTok int     // longest prefix match, in tokens (matched pages x page size)
-	KVUsage    float64 // L(I_k): allocated / total KV, in [0,1]
-	Queue      float64 // Q(I_k): waiting requests
-}
-
 func clip(x, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, x)) }
 
-func score(p Params, nTokens int, n NodeState) float64 {
+func score(p *params, nTokens int, q float64, kvUsage float64, matchedTok int) float64 {
 	c := 0.0
 	if nTokens > 0 {
-		c = clip(float64(n.MatchedTok)/float64(nTokens), 0, 1) // eq 2
+		c = clip(float64(matchedTok)/float64(nTokens), 0, 1) // eq 2
 	}
-	tHat := p.A*float64(nTokens)*(1-c) + p.B*n.Queue + p.C // eq 3
-	t := clip(1-tHat/p.TMax, 0, 1)                         // eq 4
-	return p.Alpha*c + p.Beta*(1-n.KVUsage) + p.Gamma*t    // eq 1
-}
-
-func pick(p Params, nTokens int, nodes []NodeState) string {
-	best, bestScore := "", math.Inf(-1)
-	for _, n := range nodes {
-		if s := score(p, nTokens, n); s > bestScore {
-			best, bestScore = n.Name, s
-		}
-	}
-	return best
+	tHat := p.a*float64(nTokens)*(1-c) + p.b*q + p.c  // eq 3
+	t := clip(1-tHat/p.tMax, 0, 1)                    // eq 4
+	return p.alpha*c + p.beta*(1-kvUsage) + p.gamma*t // eq 1
 }
 
 type Sample struct {

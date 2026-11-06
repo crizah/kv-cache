@@ -60,7 +60,7 @@ func loadScore(running, waiting int64, waitingWeight float64) float64 {
 
 type HealthTable struct {
 	mx              sync.RWMutex
-	table           map[string]*NodeInfo
+	table           map[string]*NodeInfo // node id to info?
 	nodes           []node.Node
 	waitingWeight   float64
 	loadedThreshold float64
@@ -294,6 +294,14 @@ func decodeLoadStat(payload []byte) (*LoadStat, error) {
 		return nil, fmt.Errorf("bad max_total_num_tokens: %v", raw[4])
 	}
 	return &LoadStat{RunningReqs: running, WaitingReqs: waiting, Tokens: tokens, MaxTokens: maxTokens}, nil
+}
+
+func (table *HealthTable) GetInfo(nId string) (int64, int64) {
+	table.mx.RLock()
+	defer table.mx.RUnlock()
+	queue := table.table[nId].WaitingReqs
+	mT := table.table[nId].MaxTokens
+	return queue, mT
 }
 
 func toInt64(v any) (int64, bool) {
