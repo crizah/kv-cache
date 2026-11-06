@@ -193,7 +193,7 @@ def main():
     print(f"Length={args.length}  cached={CACHED_REQUESTS}  new={NEW_REQUESTS}  total={TOTAL_REQUESTS}")
 
     from tokenizers import Tokenizer
-    tk_path = cfg["models"][cfg["model"]]["tokenizer_path"]
+    tk_path = str(Path(args.config).parent / cfg["models"][cfg["model"]]["tokenizer_path"])
     tk = Tokenizer.from_file(tk_path)
 
     # build request list: 50 cached + 25 new, shuffled

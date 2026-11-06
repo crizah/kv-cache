@@ -67,7 +67,9 @@ def load_tokenizer_path(config_path: str) -> str:
     with open(config_path) as f:
         cfg = json.load(f)
     model = cfg["model"]
-    return cfg["models"][model]["tokenizer_path"]
+    rel = cfg["models"][model]["tokenizer_path"]
+    # path in config.json is relative to the repo root (parent of config.json)
+    return str(Path(config_path).parent / rel)
 
 
 def flush_cache(sglang_url: str):

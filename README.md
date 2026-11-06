@@ -329,3 +329,11 @@ one model, different lengths of caches, measured time comparison between cache t
 
 
 our config values rae based on this particular hardware and we will run our extire suite of exp on this hardware itself
+
+
+pip install nixl
+export UCX_NET_DEVICES=eth0 UCX_TLS=tcp
+export CUDA_MPS_PIPE_DIRECTORY=/tmp/mps CUDA_MPS_LOG_DIRECTORY=/tmp/mps-log
+mkdir -p /tmp/mps /tmp/mps-log
+nvidia-cuda-mps-control -d
+export CUDA_MPS_ACTIVE_THREAD_PERCENTAGE=<PCT>
