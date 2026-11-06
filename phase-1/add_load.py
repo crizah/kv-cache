@@ -65,7 +65,7 @@ def load_node_urls(config_path: str, node_id: str) -> tuple[str, str]:
     return agent_url, sglang_url
 
 
-def load_docs(length: int, l_docs_dir: str) -> list[list[int]]:
+def load_docs(length: int, l_docs_dir: str) -> list[dict]:
     p = Path(l_docs_dir) / f"L_docs_{length}.json"
     if not p.exists():
         raise SystemExit(
@@ -77,12 +77,12 @@ def load_docs(length: int, l_docs_dir: str) -> list[list[int]]:
     return docs
 
 
-def warm_node(agent_url: str, docs: list[list[int]], rng: random.Random):
+def warm_node(agent_url: str, docs: list[dict], rng: random.Random):
     print(f"Warming node with {len(docs)} documents…")
     for i, doc in enumerate(docs):
         suffix = rand_ids(rng, SUFFIX_TOKENS)
         payload = {
-            "input_ids": doc + suffix,
+            "input_ids": doc["ids"] + suffix,
             "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
             "stream": False,
         }
@@ -91,11 +91,11 @@ def warm_node(agent_url: str, docs: list[list[int]], rng: random.Random):
     print()
 
 
-def _fire(agent_url: str, doc: list[int], seed: int, counters: dict):
+def _fire(agent_url: str, doc: dict, seed: int, counters: dict):
     rng = random.Random(seed)
     suffix = rand_ids(rng, SUFFIX_TOKENS)
     payload = {
-        "input_ids": doc + suffix,
+        "input_ids": doc["ids"] + suffix,
         "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
         "stream": False,
     }

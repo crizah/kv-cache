@@ -63,6 +63,13 @@ def rand_ids(rng: random.Random, n: int) -> list[int]:
     return [rng.randint(TOKEN_MIN, TOKEN_MAX) for _ in range(n)]
 
 
+def load_tokenizer_path(config_path: str) -> str:
+    with open(config_path) as f:
+        cfg = json.load(f)
+    model = cfg["model"]
+    return cfg["models"][model]["tokenizer_path"]
+
+
 def flush_cache(sglang_url: str):
     requests.post(f"{sglang_url}/flush_cache", timeout=10).raise_for_status()
 
@@ -81,9 +88,15 @@ def docs_path(l_docs_dir: str, length: int) -> Path:
     return Path(l_docs_dir) / f"L_docs_{length}.json"
 
 
-def generate_docs(length: int, l_docs_dir: str, seed: int) -> list[list[int]]:
+def generate_docs(length: int, l_docs_dir: str, tokenizer_path: str, seed: int) -> list[dict]:
+    from tokenizers import Tokenizer
+    tk = Tokenizer.from_file(tokenizer_path)
     rng = random.Random(seed)
-    docs = [rand_ids(rng, length) for _ in range(L_DOCS)]
+    docs = []
+    for _ in range(L_DOCS):
+        ids = rand_ids(rng, length)
+        text = tk.decode(ids)
+        docs.append({"ids": ids, "text": text})
     p = docs_path(l_docs_dir, length)
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "w") as f:
@@ -92,7 +105,7 @@ def generate_docs(length: int, l_docs_dir: str, seed: int) -> list[list[int]]:
     return docs
 
 
-def load_docs(length: int, l_docs_dir: str, seed: int) -> list[list[int]]:
+def load_docs(length: int, l_docs_dir: str, tokenizer_path: str, seed: int) -> list[dict]:
     p = docs_path(l_docs_dir, length)
     if p.exists():
         with open(p) as f:
@@ -100,18 +113,18 @@ def load_docs(length: int, l_docs_dir: str, seed: int) -> list[list[int]]:
         print(f"Loaded {len(docs)} documents from {p}")
         return docs
     print(f"Documents not found at {p}, generating…")
-    return generate_docs(length, l_docs_dir, seed)
+    return generate_docs(length, l_docs_dir, tokenizer_path, seed)
 
 
 # ── warm-up ───────────────────────────────────────────────────────────────────
 
-def warm_node(agent_url: str, docs: list[list[int]], rng: random.Random):
+def warm_node(agent_url: str, docs: list[dict], rng: random.Random):
     """Send each of the L documents once so they're in nodeA's KV cache."""
     print(f"Warming nodeA with {len(docs)} documents…")
     for i, doc in enumerate(docs):
         suffix = rand_ids(rng, SUFFIX_TOKENS)
         payload = {
-            "input_ids": doc + suffix,
+            "input_ids": doc["ids"] + suffix,
             "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
             "stream": False,
         }
@@ -122,12 +135,12 @@ def warm_node(agent_url: str, docs: list[list[int]], rng: random.Random):
 
 # ── single-request worker ─────────────────────────────────────────────────────
 
-def _send_one(agent_url: str, doc: list[int], seed: int, out: list, slot: int):
+def _send_one(agent_url: str, doc: dict, seed: int, out: list, slot: int):
     """Send one streaming request and record TTFT in out[slot] (None = failed)."""
     rng = random.Random(seed)
     suffix = rand_ids(rng, SUFFIX_TOKENS)
     payload = {
-        "input_ids": doc + suffix,
+        "input_ids": doc["ids"] + suffix,
         "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
         "stream": True,
     }
@@ -149,7 +162,7 @@ def _send_one(agent_url: str, doc: list[int], seed: int, out: list, slot: int):
 
 # ── one rate step ─────────────────────────────────────────────────────────────
 
-def run_step(agent_url: str, sglang_url: str, docs: list[list[int]],
+def run_step(agent_url: str, sglang_url: str, docs: list[dict],
              rate: float, rng: random.Random) -> dict:
     """Run for STEP_DURATION_S at `rate` req/s with Poisson arrivals.
 
@@ -251,11 +264,13 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
+    tokenizer_path = load_tokenizer_path(args.config)
+
     if args.gen_only:
-        generate_docs(args.length, args.l_docs_dir, args.seed)
+        generate_docs(args.length, args.l_docs_dir, tokenizer_path, args.seed)
         return
 
-    docs = load_docs(args.length, args.l_docs_dir, args.seed)
+    docs = load_docs(args.length, args.l_docs_dir, tokenizer_path, args.seed)
     rng = random.Random(args.seed)
 
     agent_url, sglang_url = load_node_urls(args.config, args.node_id)
