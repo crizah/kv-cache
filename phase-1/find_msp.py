@@ -30,16 +30,17 @@ Flags:
 """
 
 import argparse
+import asyncio
 import json
 import math
 import os
 import re
 import random
 import sys
-import threading
 import time
 from pathlib import Path
 
+import aiohttp
 import requests
 
 # ── constants ─────────────────────────────────────────────────────────────────
@@ -54,8 +55,8 @@ STEP_DURATION_S = 120      # seconds to send at each rate level
 REST_S          = 30       # rest between steps to let the queue drain
 START_RATE      = 0.25     # initial offered rate (req/s)
 RATE_MULTIPLIER = 1.25     # multiply rate by this each passing step
-TTFT_SLO_S      = 10.0     # p95 TTFT must stay below this (seconds)
-E2E_SLO_S       = 30.0     # p95 end-to-end latency must stay below this (seconds)
+TTFT_SLO_S      = 3.0      # p95 TTFT must stay below this (seconds)
+E2E_SLO_S       = 15.0     # p95 end-to-end latency must stay below this (seconds)
 MIN_FINISH_RATIO = 0.95    # fraction of sent requests that must complete
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -136,10 +137,11 @@ def warm_node(agent_url: str, docs: list[dict], rng: random.Random):
     print()
 
 
-# ── single-request worker ─────────────────────────────────────────────────────
+# ── open-loop async request ───────────────────────────────────────────────────
 
-def _send_one(agent_url: str, doc: dict, seed: int, out: list, slot: int):
-    """Send one streaming request; store (ttft, e2e) in out[slot], or None on failure."""
+async def _send_one(session: "aiohttp.ClientSession", agent_url: str,
+                    doc: dict, seed: int, scheduled_at: float) -> dict:
+    """Fire one streaming request; return timing dict. TTFT measured from actual send time."""
     rng = random.Random(seed)
     suffix = rand_ids(rng, SUFFIX_TOKENS)
     payload = {
@@ -147,94 +149,102 @@ def _send_one(agent_url: str, doc: dict, seed: int, out: list, slot: int):
         "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
         "stream": True,
     }
-    t0 = time.perf_counter()
+    t_send = time.perf_counter()
+    start_lateness = t_send - scheduled_at
     ttft = None
     t_last = None
     try:
-        with requests.post(f"{agent_url}/generate", json=payload, stream=True, timeout=180) as resp:
+        async with session.post(f"{agent_url}/generate", json=payload) as resp:
             resp.raise_for_status()
-            for raw in resp.iter_lines():
-                if not raw:
+            async for line in resp.content:
+                line = line.strip()
+                if not line:
                     continue
                 now = time.perf_counter()
                 if ttft is None:
-                    ttft = now - t0
+                    ttft = now - t_send
                 t_last = now
     except Exception:
         pass
-    e2e = (t_last - t0) if t_last is not None else None
-    out[slot] = (ttft, e2e)
+    e2e = (t_last - t_send) if t_last is not None else None
+    return {"ttft": ttft, "e2e": e2e, "start_lateness": start_lateness}
 
 
 # ── one rate step ─────────────────────────────────────────────────────────────
 
-def run_step(agent_url: str, sglang_url: str, docs: list[dict],
-             rate: float, rng: random.Random) -> dict:
-    """Run for STEP_DURATION_S at `rate` req/s with Poisson arrivals.
-
-    Returns a dict with: rate, sent, finished, finish_ratio,
-    p95_ttft_s, q_start, q_end, passed.
-    """
-    deadline = time.time() + STEP_DURATION_S
-    results: list = []
-    threads: list[threading.Thread] = []
-    idx = 0
+async def _run_step_async(agent_url: str, sglang_url: str, docs: list[dict],
+                          rate: float, rng: random.Random) -> dict:
+    connector = aiohttp.TCPConnector(limit=0)
+    timeout   = aiohttp.ClientTimeout(total=300)
 
     q_start = waiting_queue(sglang_url)
+    t0      = time.perf_counter()
+    deadline = t0 + STEP_DURATION_S
 
-    while time.time() < deadline:
-        doc = docs[rng.randrange(len(docs))]
-        results.append(None)
-        t = threading.Thread(
-            target=_send_one,
-            args=(agent_url, doc, rng.randint(0, 2**31), results, idx),
-            daemon=True,
-        )
-        t.start()
-        threads.append(t)
-        idx += 1
+    tasks   = []
+    schedule_misses = 0
+    sent    = 0
 
-        # exponential inter-arrival time for Poisson process
-        gap = -math.log(max(rng.random(), 1e-9)) / rate
-        wake = time.time() + gap
-        now = time.time()
-        if wake > now:
-            time.sleep(wake - now)
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        while time.perf_counter() < deadline:
+            scheduled_at = time.perf_counter()
+            doc  = docs[rng.randrange(len(docs))]
+            seed = rng.randint(0, 2**31)
+            tasks.append(asyncio.create_task(
+                _send_one(session, agent_url, doc, seed, scheduled_at)
+            ))
+            sent += 1
 
-    # wait up to STEP_DURATION_S for in-flight requests to finish
-    for t in threads:
-        t.join(timeout=STEP_DURATION_S)
+            gap  = -math.log(max(rng.random(), 1e-9)) / rate
+            wake = time.perf_counter() + gap
+            remaining = wake - time.perf_counter()
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+
+        # wait up to STEP_DURATION_S for all in-flight requests to finish
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
     q_end = waiting_queue(sglang_url)
 
-    finished = [v for v in results if v is not None]
-    sent = len(results)
+    finished = [r for r in results if isinstance(r, dict) and r["ttft"] is not None]
     finish_ratio = len(finished) / sent if sent else 0.0
+
+    late = sum(1 for r in results if isinstance(r, dict) and r["start_lateness"] > 1.0)
+    late_pct = late / sent if sent else 0.0
+    schedule_ok = late_pct <= 0.01
 
     def p95_of(vals):
         s = sorted(v for v in vals if v is not None)
         return s[int(0.95 * len(s))] if s else None
 
-    p95_ttft = p95_of(v[0] for v in finished)
-    p95_e2e  = p95_of(v[1] for v in finished)
+    p95_ttft = p95_of(r["ttft"] for r in finished)
+    p95_e2e  = p95_of(r["e2e"]  for r in finished)
 
-    # queue growth is the primary saturation signal
+    # queue growth is the primary saturation signal; also invalidate if schedule slipped
     passed = (
-        finish_ratio >= MIN_FINISH_RATIO
+        schedule_ok
+        and finish_ratio >= MIN_FINISH_RATIO
         and q_end <= q_start
     )
 
     return {
-        "rate": round(rate, 4),
-        "sent": sent,
-        "finished": len(finished),
-        "finish_ratio": round(finish_ratio, 3),
-        "p95_ttft_s": round(p95_ttft, 3) if p95_ttft is not None else None,
-        "p95_e2e_s":  round(p95_e2e,  3) if p95_e2e  is not None else None,
-        "q_start": q_start,
-        "q_end": q_end,
-        "passed": passed,
+        "rate":          round(rate, 4),
+        "sent":          sent,
+        "finished":      len(finished),
+        "finish_ratio":  round(finish_ratio, 3),
+        "p95_ttft_s":    round(p95_ttft, 3) if p95_ttft is not None else None,
+        "p95_e2e_s":     round(p95_e2e,  3) if p95_e2e  is not None else None,
+        "q_start":       q_start,
+        "q_end":         q_end,
+        "late_pct":      round(late_pct, 4),
+        "schedule_ok":   schedule_ok,
+        "passed":        passed,
     }
+
+
+def run_step(agent_url: str, sglang_url: str, docs: list[dict],
+             rate: float, rng: random.Random) -> dict:
+    return asyncio.run(_run_step_async(agent_url, sglang_url, docs, rate, rng))
 
 
 # ── main ──────────────────────────────────────────────────────────────────────

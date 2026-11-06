@@ -20,15 +20,16 @@ Flags:
 """
 
 import argparse
+import asyncio
 import json
 import math
 import random
 import signal
 import sys
-import threading
 import time
 from pathlib import Path
 
+import aiohttp
 import requests
 
 # ── MSP table ─────────────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ OUTPUT_TOKENS  = 256
 TOKEN_MIN      = 100
 TOKEN_MAX      = 50_000
 
-_stop = threading.Event()
+_stop: asyncio.Event | None = None
 
 
 def rand_ids(rng: random.Random, n: int) -> list[int]:
@@ -92,7 +93,8 @@ def warm_node(agent_url: str, docs: list[dict], rng: random.Random):
     print()
 
 
-def _fire(agent_url: str, doc: dict, seed: int, counters: dict):
+async def _fire(session: aiohttp.ClientSession, agent_url: str, doc: dict,
+               seed: int, counters: dict):
     rng = random.Random(seed)
     suffix = rand_ids(rng, SUFFIX_TOKENS)
     payload = {
@@ -101,36 +103,51 @@ def _fire(agent_url: str, doc: dict, seed: int, counters: dict):
         "stream": False,
     }
     try:
-        requests.post(f"{agent_url}/generate", json=payload, timeout=180).raise_for_status()
+        async with session.post(f"{agent_url}/generate", json=payload) as resp:
+            resp.raise_for_status()
+            await resp.read()
         counters["ok"] += 1
     except Exception:
         counters["err"] += 1
 
 
-def maintain_load(agent_url: str, docs: list[list[int]], rate: float, rng: random.Random):
+async def _maintain_load_async(agent_url: str, docs: list[dict], rate: float, rng: random.Random):
+    global _stop
+    _stop = asyncio.Event()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, _stop.set)
+
     counters = {"ok": 0, "err": 0}
-    t_start = time.time()
+    t_start = time.perf_counter()
     print(f"Sending at {rate:.3f} req/s — Ctrl+C to stop\n")
 
-    while not _stop.is_set():
-        doc = docs[rng.randrange(len(docs))]
-        t = threading.Thread(
-            target=_fire,
-            args=(agent_url, doc, rng.randint(0, 2**31), counters),
-            daemon=True,
-        )
-        t.start()
+    connector = aiohttp.TCPConnector(limit=0)
+    timeout   = aiohttp.ClientTimeout(total=300)
 
-        gap = -math.log(max(rng.random(), 1e-9)) / rate
-        wake = time.time() + gap
-        remaining = wake - time.time()
-        if remaining > 0:
-            _stop.wait(timeout=remaining)
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        while not _stop.is_set():
+            doc  = docs[rng.randrange(len(docs))]
+            seed = rng.randint(0, 2**31)
+            asyncio.create_task(_fire(session, agent_url, doc, seed, counters))
 
-    elapsed = time.time() - t_start
+            gap       = -math.log(max(rng.random(), 1e-9)) / rate
+            remaining = gap
+            if remaining > 0:
+                try:
+                    await asyncio.wait_for(_stop.wait(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    pass
+
+    elapsed = time.perf_counter() - t_start
     total = counters["ok"] + counters["err"]
     print(f"\nStopped. {total} sent ({counters['ok']} ok, {counters['err']} err) "
           f"over {elapsed:.1f}s — actual rate {total / elapsed:.3f} req/s")
+
+
+def maintain_load(agent_url: str, docs: list[dict], rate: float, rng: random.Random):
+    asyncio.run(_maintain_load_async(agent_url, docs, rate, rng))
 
 
 def main():
@@ -170,9 +187,6 @@ def main():
     rng  = random.Random(args.seed)
 
     warm_node(agent_url, docs, rng)
-
-    signal.signal(signal.SIGINT,  lambda *_: _stop.set())
-    signal.signal(signal.SIGTERM, lambda *_: _stop.set())
 
     maintain_load(agent_url, docs, rate, rng)
 
