@@ -23,6 +23,7 @@ type Config struct {
 	PageSize            int    // must equal the servers' --page-size
 	TokenizerPath       string // path to the model's tokenizer.json (the full fast tokenizer file)
 	PullThresholdTokens int    // matched prefix (tokens) at/above which a pull beats recompute; 0 means no threshold
+	Router              string // kv, rr, cacheRoute, ll
 }
 
 type RequestService struct {
@@ -96,6 +97,7 @@ func NewRequestService(cfg Config, input string, nodes []node.Node, table *route
 		tokeniser:           tk,
 		healthTable:         n,
 		nodeMap:             nm,
+		routerType:          cfg.Router,
 	}, nil
 }
 

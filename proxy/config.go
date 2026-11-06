@@ -102,17 +102,12 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.RequestTimeoutSec <= 0 {
 		cfg.RequestTimeoutSec = 30
 	}
-	// 	switch cfg.Router {
-	// 	case "kv":
-	// 		cfg.Router = KV
-	// 	case "CacheRoute":
-	// 		cfg.Router = CACHEROUTE
-	// 	case "RR":
-	// 		cfg.Router = RR
-	// 	default:
-	// 		return nil, fmt.Errorf("Not a valid router type %s", cfg.Router)
-	//
-	// 	}
+	switch cfg.Router {
+	case "kv", "rr", "cacheRoute", "ll":
+		// valid
+	default:
+		return nil, fmt.Errorf("router must be one of kv, rr, cacheRoute, ll; got %q", cfg.Router)
+	}
 
 	return &cfg, nil
 }
@@ -148,6 +143,7 @@ func (cfg *Config) requestServiceConfig() services.Config {
 		PageSize:            m.PageSize,
 		TokenizerPath:       m.TokenizerPath,
 		PullThresholdTokens: m.PullThresholdTokens,
+		Router:              cfg.Router,
 	}
 }
 

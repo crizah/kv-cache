@@ -115,20 +115,17 @@ func (r *RRRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
 	// "healthy" nodes, the better statement here is no matter if the node is loaded or not)
 	// we need to maintain the last used node
 
-	r.req.routeTable.RRMap.Mx.RLock()
-	lastUsed := r.req.routeTable.RRMap.CurrentIndex
-	r.req.routeTable.RRMap.Mx.RUnlock()
-
 	r.req.routeTable.RRMap.Mx.Lock()
 	defer r.req.routeTable.RRMap.Mx.Unlock()
-	if lastUsed == -1 {
+	if r.req.routeTable.RRMap.CurrentIndex == -1 {
 		// this is the first req
 		// use the 0th one lol
 		r.req.routeTable.RRMap.CurrentIndex = 0
 		return &node.RouterRes{NodeD: r.req.routeTable.Nodes[0]}
 	}
-	nextNode := nextNode(r.req.routeTable.RRMap.TotalNodes, lastUsed)
-	return &node.RouterRes{NodeD: r.req.routeTable.Nodes[nextNode]}
+	next := nextNode(r.req.routeTable.RRMap.TotalNodes, r.req.routeTable.RRMap.CurrentIndex)
+	r.req.routeTable.RRMap.CurrentIndex = next
+	return &node.RouterRes{NodeD: r.req.routeTable.Nodes[next]}
 }
 
 func nextNode(size int, curr int) int {
