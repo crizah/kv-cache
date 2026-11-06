@@ -52,9 +52,9 @@ TOKEN_MIN       = 100
 TOKEN_MAX       = 50_000
 
 STEP_DURATION_S = 120      # seconds to send at each rate level
-REST_S          = 30       # rest between steps to let the queue drain
-START_RATE      = 0.25     # initial offered rate (req/s)
-RATE_MULTIPLIER = 1.25     # multiply rate by this each passing step
+REST_S          = 10       # rest between steps to let the queue drain
+START_RATE      = 0.5     # initial offered rate (req/s)
+RATE_MULTIPLIER = 1.5      # multiply rate by this each passing step
 TTFT_SLO_S      = 3.0      # p95 TTFT must stay below this (seconds)
 E2E_SLO_S       = 15.0     # p95 end-to-end latency must stay below this (seconds)
 MIN_FINISH_RATIO = 0.95    # fraction of sent requests that must complete
