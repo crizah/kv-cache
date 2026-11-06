@@ -13,7 +13,7 @@ exec python3 -m sglang.launch_server \
     --stream-interval                      1                       \
     --enable-metrics                                               \
     --enable-hierarchical-cache                                    \
-    --hicache-ratio                        250                     \
+    --hicache-ratio                        4                       \
     --hicache-mem-layout                   page_first              \
     --hicache-write-policy                 write_through           \
     --hicache-storage-prefetch-policy      wait_complete           \
