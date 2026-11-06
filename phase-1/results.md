@@ -65,7 +65,7 @@ runs only after we run the above script
 this also has flags for MSP and for prefix length
 this maintains a load of x of MSP, where MSP for that prefix length is determined from the above exp. hardcode values for now and comment that these need to be filled up
 
-for that prefix length, it looks is the L document, at startup, warms nodeA with those L documents, and then maintains the x load on nodeA (for x , the script sends 0.x*MSP reqs per second with random gaps) by sending requests of random suffix lengths, but reuses the prefixes from L, so as to ensure we dont evict them.
+for that prefix length, it looks is the L document, at startup, warms nodeA with those L documents, and then maintains the x load on nodeA (for x , the script sends 0.x*MSP reqs per second with random gaps) by sending requests of 128 tokens, but reuses the prefixes from L, so as to ensure we dont evict them.
 
 - script to test if the kv events and load events and usage events are being written to the proxy (just a one off test)
 client: proxy? im not sure on it
@@ -87,5 +87,3 @@ Cache hit rate. For every request, read cached_tokens and prompt_tokens from the
 
 for each request, we also need to record who served it, who we pulled from etc. the script, for every req, sends the req with a X-Request-Id, and our proxy returns headers with X-Request-Id (same as the one we sent), X-Served-By (the node that processed this req) and X-Pulled-From (if we had a pull, this cna be empty)
 we log this, so we know which req was processed by which node
-
-- add logs in the proxy for who this req was sent to

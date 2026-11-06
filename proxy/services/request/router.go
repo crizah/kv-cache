@@ -2,6 +2,9 @@ package request
 
 import (
 	"context"
+	"errors"
+	"math"
+	"sort"
 
 	"github.com/crizah/KV/proxy/services/health"
 	"github.com/crizah/KV/proxy/services/node"
@@ -24,7 +27,10 @@ type LLRouter struct {
 }
 
 type CacheRouter struct {
-	req *RequestService
+	req                *RequestService
+	alpha, beta, gamma float64 // non-negative, sum to 1, Alpha > Beta
+	a, b, c            float64 // TTFT model coefficients (calibrated)
+	tMax               float64 // p99 TTFT from calibration window, seconds
 }
 
 func NewKvRouter(req *RequestService) *KvRouter {
@@ -36,6 +42,7 @@ func NewRRRouter(req *RequestService) *RRRouter {
 }
 
 func NewCacheRouter(req *RequestService) *CacheRouter {
+	// todo: hardcode values for the constants here
 	return &CacheRouter{req: req}
 }
 func NewLLRouter(req *RequestService) *LLRouter {
@@ -143,4 +150,110 @@ func (r *CacheRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes 
 func (r *LLRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
 	// the least loaded node
 	return r.req.healthTable.LLRoute()
+}
+
+type Params struct {
+}
+
+type NodeState struct {
+	Name       string
+	MatchedTok int     // longest prefix match, in tokens (matched pages x page size)
+	KVUsage    float64 // L(I_k): allocated / total KV, in [0,1]
+	Queue      float64 // Q(I_k): waiting requests
+}
+
+func clip(x, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, x)) }
+
+func score(p Params, nTokens int, n NodeState) float64 {
+	c := 0.0
+	if nTokens > 0 {
+		c = clip(float64(n.MatchedTok)/float64(nTokens), 0, 1) // eq 2
+	}
+	tHat := p.A*float64(nTokens)*(1-c) + p.B*n.Queue + p.C // eq 3
+	t := clip(1-tHat/p.TMax, 0, 1)                         // eq 4
+	return p.Alpha*c + p.Beta*(1-n.KVUsage) + p.Gamma*t    // eq 1
+}
+
+func pick(p Params, nTokens int, nodes []NodeState) string {
+	best, bestScore := "", math.Inf(-1)
+	for _, n := range nodes {
+		if s := score(p, nTokens, n); s > bestScore {
+			best, bestScore = n.Name, s
+		}
+	}
+	return best
+}
+
+type Sample struct {
+	NTokens   int
+	CacheFrac float64 // C at send time
+	Queue     float64 // Q at send time
+	TTFT      float64 // observed, seconds
+}
+
+type Coeffs struct{ A, B, C, TMax float64 }
+
+// Least-squares fit of ttft = a*n*(1-C) + b*Q + c, plus p99 TTFT.
+func Calibrate(s []Sample) (Coeffs, error) {
+	if len(s) < 3 {
+		return Coeffs{}, errors.New("need at least 3 samples")
+	}
+	var xtx [3][3]float64
+	var xty [3]float64
+	ttfts := make([]float64, 0, len(s))
+	for _, v := range s {
+		x := [3]float64{float64(v.NTokens) * (1 - v.CacheFrac), v.Queue, 1}
+		for i := 0; i < 3; i++ {
+			for j := 0; j < 3; j++ {
+				xtx[i][j] += x[i] * x[j]
+			}
+			xty[i] += x[i] * v.TTFT
+		}
+		ttfts = append(ttfts, v.TTFT)
+	}
+	beta, err := solve3(xtx, xty)
+	if err != nil {
+		return Coeffs{}, err
+	}
+	sort.Float64s(ttfts)
+	idx := int(math.Ceil(0.99*float64(len(ttfts)))) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	return Coeffs{beta[0], beta[1], beta[2], ttfts[idx]}, nil
+}
+
+func solve3(m [3][3]float64, y [3]float64) ([3]float64, error) {
+	var a [3][4]float64
+	for i := 0; i < 3; i++ {
+		copy(a[i][:3], m[i][:])
+		a[i][3] = y[i]
+	}
+	for col := 0; col < 3; col++ {
+		p := col
+		for r := col + 1; r < 3; r++ {
+			if math.Abs(a[r][col]) > math.Abs(a[p][col]) {
+				p = r
+			}
+		}
+		if math.Abs(a[p][col]) < 1e-12 {
+			return [3]float64{}, errors.New("singular: calibration samples need more variety")
+		}
+		a[col], a[p] = a[p], a[col]
+		for r := col + 1; r < 3; r++ {
+			f := a[r][col] / a[col][col]
+			for k := col; k < 4; k++ {
+				a[r][k] -= f * a[col][k]
+			}
+		}
+	}
+	var x [3]float64
+	for i := 2; i >= 0; i-- {
+		sum := a[i][3]
+		for k := i + 1; k < 3; k++ {
+			sum -= a[i][k] * x[k]
+		}
+		x[i] = sum / a[i][i]
+	}
+	return x, nil
 }

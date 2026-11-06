@@ -1,7 +1,7 @@
 {
-  "model": "Qwen3-4B",
-  "model_path": "Qwen/Qwen3-4B",
-  "cpu_offload_gb": 20,
+  "model": "Qwen3-32B",
+  "model_path": "Qwen/Qwen3-32B",
+  "cpu_offload_gb": 0,
   "mem_fraction_static": 0.85,
   "router": "kv",
   "backend_module_path": "agent/backend.py",
@@ -25,8 +25,8 @@
   },
   "listen_addr": ":8080",
   "nodes": [
-    { "id": "A", "ip": "FILL_ME", "http": "9100", "kv_events": "5557", "load": "6000", "sglang": "8001"},
-    { "id": "B", "ip": "FILL_ME", "http": "9101", "kv_events": "5559", "load": "6001", "sglang": "8001"}
+    { "id": "A", "ip": "http://nodeA", "http": "8765", "kv_events": "5557", "load": "6000", "sglang": "8001"},
+    { "id": "B", "ip": "http://nodeB", "http": "8766", "kv_events": "5559", "load": "6001", "sglang": "8001"}
   ],
   "health": {
     "waiting_weight": 2.0,
