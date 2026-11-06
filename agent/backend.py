@@ -103,6 +103,23 @@ class AgentBackend(HiCacheStorage):
         ok = self.nixl_svc.read(peer_id, loc, rem)
         return [ok] * len(keys)
 
+    # ---- non-v1 interface stubs (SGLang routes to _v1 via interface_v1=1) ----
+
+    def exists(self, key, extra_info=None) -> bool:
+        raise NotImplementedError("use interface_v1")
+
+    def get(self, key, target_location=None, target_sizes=None):
+        raise NotImplementedError("use interface_v1")
+
+    def batch_get(self, keys, target_locations=None, target_sizes=None):
+        raise NotImplementedError("use interface_v1")
+
+    def set(self, key, value=None, target_location=None, target_sizes=None) -> bool:
+        raise NotImplementedError("use interface_v1")
+
+    def batch_set(self, keys, values=None, target_locations=None, target_sizes=None) -> bool:
+        raise NotImplementedError("use interface_v1")
+
     # ---- internal ---------------------------------------------------------
 
     def _fetch_peer_keys(self, peer_id: str, keys: list) -> dict:
