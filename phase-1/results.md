@@ -87,3 +87,10 @@ Cache hit rate. For every request, read cached_tokens and prompt_tokens from the
 
 for each request, we also need to record who served it, who we pulled from etc. the script, for every req, sends the req with a X-Request-Id, and our proxy returns headers with X-Request-Id (same as the one we sent), X-Served-By (the node that processed this req) and X-Pulled-From (if we had a pull, this cna be empty)
 we log this, so we know which req was processed by which node
+
+### done
+- the saturation finding script
+
+### left
+- run caliberate functions on node to get values for cacheRoute
+- run the actual exp

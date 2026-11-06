@@ -1,0 +1,55 @@
+[
+  {
+    "rate": 0.5,
+    "sent": 63,
+    "finished": 63,
+    "finish_ratio": 1.0,
+    "p95_ttft_s": 0.155,
+    "p95_e2e_s": 12.267,
+    "q_start": 0,
+    "q_end": 0,
+    "late_pct": 0.0,
+    "schedule_ok": true,
+    "passed": true
+  },
+  {
+    "rate": 0.75,
+    "sent": 89,
+    "finished": 89,
+    "finish_ratio": 1.0,
+    "p95_ttft_s": 0.177,
+    "p95_e2e_s": 13.753,
+    "q_start": 0,
+    "q_end": 0,
+    "late_pct": 0.0,
+    "schedule_ok": true,
+    "passed": true
+  },
+  {
+    "rate": 1.125,
+    "sent": 124,
+    "finished": 124,
+    "finish_ratio": 1.0,
+    "p95_ttft_s": 0.182,
+    "p95_e2e_s": 15.257,
+    "q_start": 0,
+    "q_end": 0,
+    "late_pct": 0.0,
+    "schedule_ok": true,
+    "passed": false
+  },
+  {
+    "rate": 0.75,
+    "sent": 71,
+    "finished": 71,
+    "finish_ratio": 1.0,
+    "p95_ttft_s": 0.171,
+    "p95_e2e_s": 12.614,
+    "q_start": 0,
+    "q_end": 0,
+    "late_pct": 0.0,
+    "schedule_ok": true,
+    "passed": true,
+    "note": "confirmation"
+  }
+]
