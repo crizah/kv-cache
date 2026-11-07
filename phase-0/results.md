@@ -14,4 +14,6 @@ largely depends on the hardware guys. i am GUESSING yall dont have a bunch of h2
 and so far, we only ran sweep.py, we should also run interference.py. would be interesting to see but i actually doubt A will show any substantial slow downs, if at all
 what can be interesting to see is A's compute with write_through turned off vs on. bet that will have fun numbers
 
-ill tell u about the network configs in a bit
+BIG NOTE: this does NOT take into consideration the latency we get from a nodeA writing to RAM with the --write-through. this only measures pure recompute vs transfer over an already written through cache on nodeA's RAM
+and also, 
+another BiG NOTE: these pull timings are like, best case scenario since I FORGOT TO ADD THROTTLE BRO HOW DID I FORGET TO ADD MF NETWORK THROTTLE. idk man, maybe we will redo this one because tbh these pull times are literally on the same machine over a docker network

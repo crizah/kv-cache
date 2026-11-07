@@ -90,6 +90,21 @@ we log this, so we know which req was processed by which node
 
 ### done
 - the saturation finding script
+the msps (the ones marke * are estimated, not calculated)
+
+```
+MSP(L) = MSP(L₀) × (L / L₀)^(−k), where k = ln(MSP(L₀) / MSP(L₁)) / ln(L₁ / L₀), fitted between the two nearest measured lengths L₀ and L₁ (measured: 2048, 8192 and 24576). For 32768 it extends the last fitted line.
+
+Disclaimer: "MSP values at 12288, 16384 and 32768 tokens were estimated by log-log interpolation (extrapolation at 32768) between measured values at 2048, 8192 and 24576 tokens."
+```
+```
+2048:  2.32,
+8192:  0.75,
+12288*: 0.45,
+16384*: 0.31, 
+24576:  0.18,
+327768*: 0.12 (least reliable)
+```
 
 ### left
 - run caliberate functions on node to get values for cacheRoute
