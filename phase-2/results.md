@@ -69,4 +69,8 @@ Rules. Don’t change the parameters above. Keep invalid rows and count them.
 
 cap network at 6gbps
 
-docker run -d --name nodeA --network kvnet --gpus device=GPU_A --shm-size=16g --ulimit memlock=-1 --cap-add NET_ADMIN --device-read-bps /dev/md0:750mb --device-write-bps /dev/md0:750mb -v $HOME/Naween/shaizah/kv-cache:/root/kv-cache -v $HOME/Naween/shaizah/models:/models lmsysorg/sglang:v0.5.19-cu129 sleep infinity
+docker run -d --name nodeA --network kvnet --gpus device=GPU_A --shm-size=16g --ulimit memlock=-1 --cap-add NET_ADMIN --device-read-bps /dev/md0:750mb --device-write-bps /dev/md0:750mb -v $HOME/Naween/shaizah/kv-cache:/root/kv-cache -v $HOME/Naween/shaizah/models:/models -e CUDA_MPS_PIPE_DIRECTORY=/tmp/mps -e CUDA_MPS_LOG_DIRECTORY=/tmp/mps-log -e CUDA_MPS_ACTIVE_THREAD_PERCENTAGE=25 -e UCX_NET_DEVICES=eth0 -e UCX_TLS=tcp lmsysorg/sglang:v0.5.19-cu129 sleep infinity
+
+
+### running this bitch
+lets start with baseline?
