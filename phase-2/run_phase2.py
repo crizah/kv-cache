@@ -463,27 +463,43 @@ class ChurnProcess:
 
 # ── key computation ───────────────────────────────────────────────────────────
 
+# ── page key computation (pure Python, matches SGLang's hash_binding.cpp) ────
+
+def compute_page_keys(token_ids: list[int], page_size: int) -> list[str]:
+    """
+    Replicates SGLang's C++ hash for normal (non-bigram, uint32-fit) token IDs.
+    Each page: SHA256(prior_digest_bytes? + tokens_as_uint32_le).
+    Returns list of hex-string keys, one per page.
+    """
+    import hashlib
+    import struct
+    keys = []
+    prior: bytes | None = None
+    for start in range(0, len(token_ids), page_size):
+        page = token_ids[start:start + page_size]
+        h = hashlib.sha256()
+        if prior is not None:
+            h.update(prior)
+        h.update(struct.pack(f"<{len(page)}I", *page))
+        prior = h.digest()
+        keys.append(prior.hex())
+    return keys
+
+
 # ── tfw polling ───────────────────────────────────────────────────────────────
 
-def nixl_key_count(agent_a_url: str) -> int:
-    """Return the number of keys currently registered on A's agent."""
-    try:
-        resp = urllib.request.urlopen(f"{agent_a_url}/keys", timeout=5)
-        data = json.loads(resp.read())
-        return len(data)
-    except Exception:
-        return 0
-
-
-def poll_nixl_count(agent_a_url: str, count_before: int,
-                    expected_new: int) -> tuple[bool, float]:
-    """Poll until A's key count increases by at least expected_new. Returns (ok, elapsed)."""
+def poll_nixl_keys(agent_a_url: str, keys: list[str]) -> tuple[bool, float]:
+    """Poll A's /keys endpoint until all page keys appear. Returns (ok, elapsed)."""
     t0       = time.perf_counter()
     deadline = t0 + TFW_TIMEOUT_S
     while time.time() < deadline:
         try:
-            current = nixl_key_count(agent_a_url)
-            if current >= count_before + expected_new:
+            resp = urllib.request.urlopen(
+                f"{agent_a_url}/keys?hashes={','.join(keys)}",
+                timeout=5,
+            )
+            data = json.loads(resp.read())
+            if len(data) == len(keys):
                 return True, time.perf_counter() - t0
         except Exception:
             pass
@@ -809,9 +825,7 @@ def main():
                         suffix_a = rand_ids(rng, SUFFIX_TOKENS)
                         suffix_b = rand_ids(rng, SUFFIX_TOKENS)
 
-                        # snapshot key count before sending to A (for count-based tfw)
-                        keys_before = nixl_key_count(agent_a_url) if system == "nixl" else 0
-                        expected_new_keys = math.ceil(length / page_size)
+                        page_keys = compute_page_keys(doc["ids"], page_size) if system != "baseline" else []
 
                         # ── step 1: write window (send to A, max_new_tokens=1) ──
                         a_res = stream_generate(
@@ -836,14 +850,9 @@ def main():
                         tfw_s   = None
                         if system != "baseline":
                             if system == "nixl":
-                                tfw_ok, tfw_s = poll_nixl_count(
-                                    agent_a_url, keys_before, expected_new_keys
-                                )
+                                tfw_ok, tfw_s = poll_nixl_keys(agent_a_url, page_keys)
                             elif system == "l3":
-                                raise SystemExit(
-                                    "l3 tfw polling requires page key computation which is "
-                                    "not available in this SGLang build. Cannot run l3 arm."
-                                )
+                                tfw_ok, tfw_s = poll_l3_files(args.l3_dir, page_keys)
 
                             if not tfw_ok:
                                 row["tfw_s"]  = tfw_s
@@ -854,7 +863,7 @@ def main():
 
                             # ── step 3: evict (l3 only) ──
                             if system == "l3" and args.evict != "none":
-                                evict_l3(args.cont_a, args.l3_dir, keys, args.evict)
+                                evict_l3(args.cont_a, args.l3_dir, page_keys, args.evict)
 
                         # ── step 4: pull window (flush B, send to B) ──
                         if system != "baseline":
@@ -899,7 +908,7 @@ def main():
                         # ── cleanup: delete L3 files for this doc ──
                         if system == "l3" and keys:
                             delete_l3_files(args.l3_dir, keys)
-                            l3_keys_written.extend(keys)
+                            l3_keys_written.extend(page_keys)
 
                         return row
 

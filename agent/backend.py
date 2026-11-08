@@ -15,7 +15,7 @@ from sglang.srt.mem_cache.hicache_storage import (
 
 from agent.config import load_config
 from agent.handlers.generate import handle_generate
-from agent.handlers.meta import handle_agent, handle_keys
+from agent.handlers.meta import handle_agent, handle_key_count, handle_keys
 from agent.services.nixl import NixlService
 
 logger = logging.getLogger(__name__)
@@ -168,6 +168,8 @@ class AgentBackend(HiCacheStorage):
                 parsed = urlparse(self.path)
                 if parsed.path == "/agent":
                     handle_agent(self, backend.nixl_svc)
+                elif parsed.path == "/keys/count":
+                    handle_key_count(self, backend)
                 elif parsed.path == "/keys":
                     handle_keys(self, backend, parsed.query)
                 else:
