@@ -36,8 +36,6 @@ import json
 import math
 import os
 import random
-import shlex
-import socket
 import subprocess
 import sys
 import threading
@@ -113,7 +111,13 @@ def http_post_stream(url: str, payload: dict, timeout: int = 300):
 
 
 def flush_node(sglang_url: str):
-    http_post(f"{sglang_url}/flush_cache", {}, timeout=30)
+    data = json.dumps({}).encode()
+    req  = urllib.request.Request(
+        f"{sglang_url}/flush_cache", data=data,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        r.read()  # drain; body may be empty
 
 
 def waiting_queue(sglang_url: str) -> tuple[int, int]:
@@ -558,7 +562,7 @@ def stream_generate(url: str, payload: dict, timeout: int = 300) -> dict:
                 t_last = now
                 tokens += 1
                 try:
-                    chunk = json.loads(line.decode().lstrip("data: "))
+                    chunk = json.loads(line.decode().removeprefix("data: "))
                     if "meta_info" in chunk:
                         last_meta = chunk["meta_info"]
                 except Exception:
@@ -768,6 +772,7 @@ def main():
                 )
 
                 # trials
+                cell_rows: list[dict] = []
                 for trial_idx in range(args.trials):
                     doc      = cell_docs[trial_idx % len(cell_docs)]
                     doc_idx  = doc["_idx"]
@@ -780,9 +785,9 @@ def main():
                     def do_trial(row=row, doc=doc) -> dict:
                         suffix_a = rand_ids(rng, SUFFIX_TOKENS)
                         suffix_b = rand_ids(rng, SUFFIX_TOKENS)
+                        keys = None
 
                         # ── step 1: write window (send to A, max_new_tokens=1) ──
-                        t_a_start = time.time()
                         a_res = stream_generate(
                             f"{sglang_a_url}/generate",
                             {
@@ -888,6 +893,7 @@ def main():
                                 row["note"] = f"failed: {e}"
                                 row["valid"] = False
 
+                    cell_rows.append(row)
                     csv_writer.writerow(row)
                     csv_file.flush()
                     status = "OK" if row.get("valid") else f"INVALID ({row.get('note','')})"
@@ -906,10 +912,9 @@ def main():
                 samples = sampler.stop()
 
                 # cell summary
-                cell_rows = [r for r in [row] if r.get("valid")]
                 summary = {
                     "length": length, "sat": sat,
-                    "valid_trials": len(cell_rows),
+                    "valid_trials": sum(1 for r in cell_rows if r.get("valid")),
                     "total_trials": args.trials,
                     "baseline_tpot": baseline_tpot,
                 }
