@@ -81,7 +81,7 @@ class NixlService:
 
     def set_active_peer(self, peer_id: str, peer_url: str) -> None:
         """Called by generate handler before forwarding to SGLang."""
-        self.ensure_peer_connected(peer_id, peer_url)
+        self._pending_peer = (peer_id, peer_url)
         self._active_peer_id = peer_id
 
     @property
@@ -94,6 +94,10 @@ class NixlService:
         loc / rem are lists of (ptr, size, 0) tuples — one per k/v tensor per block.
         Returns True on success.
         """
+        pending = getattr(self, "_pending_peer", None)
+        if pending and pending[0] == peer_id and peer_id not in self._peer_agents:
+            self.ensure_peer_connected(pending[0], pending[1])
+
         remote_agent = self._peer_agents.get(peer_id)
         if remote_agent is None:
             logger.error(f"{TAG} read: peer {peer_id} not connected")
