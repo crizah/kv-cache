@@ -61,16 +61,11 @@ class NixlService:
             META_DIR.mkdir(exist_ok=True)
             cache_path = META_DIR / f"{peer_id}.json"
 
-            if cache_path.exists():
-                data = json.loads(cache_path.read_text())
-                logger.info(f"{TAG} loaded cached metadata for peer {peer_id}")
-            else:
-                logger.info(f"{TAG} fetching metadata from peer {peer_id} at {peer_url}")
-                resp = requests.get(f"http://{peer_url}/agent", timeout=30)
-                resp.raise_for_status()
-                data = resp.json()
-                cache_path.write_text(json.dumps(data))
-                logger.info(f"{TAG} cached metadata for peer {peer_id} to {cache_path}")
+            logger.info(f"{TAG} fetching metadata from peer {peer_id} at {peer_url}")
+            resp = requests.get(f"http://{peer_url}/agent", timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            logger.info(f"{TAG} got metadata from peer {peer_id}")
 
             nixl_meta = base64.b64decode(data["nixl_metadata"])
             remote_name = self._agent.add_remote_agent(nixl_meta)
