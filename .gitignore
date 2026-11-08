@@ -1,2 +1,4 @@
 .env
 *.tar.gz
+venv/
+phase-0/pyvenv.cfg

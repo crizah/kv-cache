@@ -152,6 +152,32 @@ def rand_ids(rng: random.Random, n: int) -> list[int]:
 
 # ── config loading ────────────────────────────────────────────────────────────
 
+def setup_nixl_peer(agent_b_url: str, cfg: dict) -> None:
+    """
+    Prime B's agent with A's peer id by sending a minimal request to B's agent
+    /generate with X-Kv-Source: A. This triggers ensure_peer_connected so that
+    batch_exists on B will find A's keys.
+    """
+    nodes = {n["id"]: n for n in cfg["nodes"]}
+    peer_a_id = nodes["A"]["id"]
+    payload = json.dumps({
+        "input_ids": [1],
+        "sampling_params": {"max_new_tokens": 1, "temperature": 0},
+        "stream": False,
+    }).encode()
+    req = urllib.request.Request(
+        f"{agent_b_url}/generate",
+        data=payload,
+        headers={"Content-Type": "application/json", "X-Kv-Source": peer_a_id},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            r.read()
+        print(f"  NIXL peer setup: B now knows A ({peer_a_id})")
+    except Exception as e:
+        print(f"  NIXL peer setup warning: {e}")
+
+
 def load_config(config_path: str) -> dict:
     with open(config_path) as f:
         return json.load(f)
@@ -715,6 +741,10 @@ def main():
     print("Running calibration…")
     cal = calibrate(system, args.cont_a, args.cont_b, args.l3_dir, out_dir)
     print(f"  calibration: {cal}")
+
+    if system == "nixl":
+        print("Setting up NIXL peer on nodeB…")
+        setup_nixl_peer(agent_b_url, cfg)
 
     # progress tracking (skip finished cells on re-run)
     progress_path = out_dir / "progress.json"
