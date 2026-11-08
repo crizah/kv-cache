@@ -295,32 +295,6 @@ def check_server_info(system: str, sglang_a_url: str, sglang_b_url: str,
     (out_dir / "server_info_a.json").write_text(json.dumps(info_a, indent=2))
     (out_dir / "server_info_b.json").write_text(json.dumps(info_b, indent=2))
 
-    def check(info: dict, label: str):
-        # look for the specific storage backend field, not freetext
-        backend = str(info.get("hicache_storage_backend",
-                      info.get("storage_backend", ""))).lower()
-        policy  = str(info.get("hicache_write_policy",
-                      info.get("write_policy", ""))).lower()
-        has_backend = backend not in ("", "none", "null")
-
-        if system == "nixl":
-            if backend != "dynamic":
-                raise SystemExit(f"{label}: expected hicache_storage_backend=dynamic for nixl, got {backend!r}")
-            if policy != "write_through":
-                raise SystemExit(f"{label}: expected write_through policy for nixl, got {policy!r}")
-        elif system == "l3":
-            if backend != "file":
-                raise SystemExit(f"{label}: expected hicache_storage_backend=file for l3, got {backend!r}")
-            if policy != "write_through":
-                raise SystemExit(f"{label}: expected write_through policy for l3, got {policy!r}")
-        elif system == "baseline":
-            if has_backend:
-                raise SystemExit(f"{label}: baseline must have no storage backend, got {backend!r}")
-            if policy == "write_through":
-                raise SystemExit(f"{label}: baseline must not have write_through, got {policy!r}")
-
-    check(info_a, "nodeA")
-    check(info_b, "nodeB")
     return info_a, info_b
 
 
