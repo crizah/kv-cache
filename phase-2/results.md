@@ -1,7 +1,7 @@
 Compare SGlangs L3 storage and us
 We test metrics on NodeA and NodeB transfers. NodeA churning its own requests, and NodeB pulling
 We test for different bytes moved aka diff prefix lengths 
-(we can have the test suite 2048,8192,24576) (because i am tired)
+(we can have the test suite 2048,8192,16384) (because i am tired)
 
 Setup being A is 0%, 80% and 100% saturation and its churning its own req
 
@@ -91,3 +91,6 @@ okay so, the msp numbers were skewed because we ran it without ignore_eos=True. 
 but its okay, we added 40, 50 and 60 as well, just to get a better "80" and "100" approximate
 
 the msp is intermediary value anyways. so even when running phase-1 actual exp, we need to recaliberate the actual load for the add laod script  to simulate actual x percentage load which we should get from this run anyways
+
+nvm it corrected itself? idek whats happening guys
+whats happening is that loading a server with 24k req is very easy to do (we also saw that with msp calc) so we are pivoting and measuring for 16k instead

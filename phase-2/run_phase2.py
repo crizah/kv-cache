@@ -170,7 +170,7 @@ def node_urls(cfg: dict, node_id: str, host_override: str | None = None) -> tupl
 MSP_TABLE = {
     2048:  2.3283,
     8192:  0.75,
-    16384: 0.31,
+    16384: 0.20,
     24576: 0.1875,
 }
 
