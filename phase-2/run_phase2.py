@@ -562,13 +562,22 @@ def poll_l3_files(l3_dir: str, keys: list[int]) -> tuple[bool, float]:
 
 # ── L3 file deletion ─────────────────────────────────────────────────────────
 
-def delete_l3_files(l3_dir: str, keys: list[int]):
+def delete_l3_files(cont_a: str, l3_dir_cont: str, keys: list):
     for k in keys:
-        for p in Path(l3_dir).glob(f"{k}*.bin"):
-            try:
-                p.unlink(missing_ok=True)
-            except Exception:
-                pass
+        try:
+            docker_exec(cont_a, ["bash", "-c", f"rm -f {l3_dir_cont}/{k}*.bin"], timeout=10)
+        except Exception:
+            pass
+
+
+def clear_l3_dir(cont_a: str, cont_b: str, l3_dir_cont: str):
+    """Delete all l3 files and recreate the directory on both nodes."""
+    for cont in (cont_a, cont_b):
+        try:
+            docker_exec(cont, ["bash", "-c",
+                               f"rm -rf {l3_dir_cont} && mkdir -p {l3_dir_cont}"], timeout=30)
+        except Exception:
+            pass
 
 
 # ── eviction ──────────────────────────────────────────────────────────────────
@@ -815,10 +824,12 @@ def main():
                 sat_idx   = sats.index(sat)
                 cell_docs = target_docs[sat_idx * TARGETS_PER_SAT:(sat_idx + 1) * TARGETS_PER_SAT]
 
-                # flush both nodes
+                # flush both nodes (and clear l3 dir)
                 print("  Flushing both nodes…")
                 flush_node(sglang_a_url)
                 flush_node(sglang_b_url)
+                if system == "l3":
+                    clear_l3_dir(args.cont_a, args.cont_b, args.l3_dir_cont)
 
                 gaps_log = str(out_dir / f"gaps_{length}_{sat}.jsonl")
                 sampler  = Sampler(args.cont_a, args.cont_b, sglang_a_url,
@@ -944,7 +955,7 @@ def main():
 
                         # ── cleanup: delete L3 files for this doc ──
                         if system == "l3" and page_keys:
-                            delete_l3_files(args.l3_dir, page_keys)
+                            delete_l3_files(args.cont_a, args.l3_dir_cont, page_keys)
                             l3_keys_written.extend(page_keys)
 
                         return row
@@ -1004,9 +1015,9 @@ def main():
         if throttle_applied:
             print("Removing throttle…")
             remove_throttle(args.cont_a)
-        if system == "l3" and args.l3_dir and l3_keys_written:
+        if system == "l3" and l3_keys_written:
             print("Cleaning up remaining L3 files…")
-            delete_l3_files(args.l3_dir, l3_keys_written)
+            delete_l3_files(args.cont_a, args.l3_dir_cont, l3_keys_written)
 
     # print final table
     print(f"\n{'='*60}")
