@@ -494,7 +494,7 @@ def compute_page_keys(token_ids: list[int], page_size: int) -> list[str]:
 def poll_nixl_keys(agent_a_url: str, keys: list[str]) -> tuple[bool, float]:
     """Poll A's /keys endpoint until all page keys appear. Returns (ok, elapsed)."""
     t0       = time.perf_counter()
-    deadline = t0 + TFW_TIMEOUT_S
+    deadline = time.time() + TFW_TIMEOUT_S
     while time.time() < deadline:
         try:
             resp = urllib.request.urlopen(
@@ -513,7 +513,7 @@ def poll_nixl_keys(agent_a_url: str, keys: list[str]) -> tuple[bool, float]:
 def poll_l3_files(l3_dir: str, keys: list[int]) -> tuple[bool, float]:
     """Poll until every key's file exists in l3_dir and sizes stabilise."""
     t0       = time.perf_counter()
-    deadline = t0 + TFW_TIMEOUT_S
+    deadline = time.time() + TFW_TIMEOUT_S
     prev_sizes: dict[int, int] = {}
     while time.time() < deadline:
         try:
