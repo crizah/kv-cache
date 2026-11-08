@@ -126,8 +126,11 @@ def waiting_queue(sglang_url: str) -> tuple[int, int]:
     req = urllib.request.Request(f"{sglang_url}/metrics")
     with urllib.request.urlopen(req, timeout=5) as r:
         text = r.read().decode()
-    running = int(float(re.search(r"sglang:num_running_reqs\s+([\d.]+)", text).group(1)))
-    waiting = int(float(re.search(r"sglang:num_waiting_reqs\s+([\d.]+)", text).group(1)))
+    def _extract(pattern):
+        m = re.search(pattern, text)
+        return int(float(m.group(1))) if m else 0
+    running = _extract(r"sglang:num_running_reqs(?:\{[^}]*\})?\s+([\d.]+)")
+    waiting = _extract(r"sglang:num_queue_reqs(?:\{[^}]*\})?\s+([\d.]+)")
     return running, waiting
 
 
