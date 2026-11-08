@@ -4,7 +4,7 @@
   "valid_trials": 5,
   "total_trials": 5,
   "baseline_tpot": {},
-  "offered_rate": 0.31,
-  "completed_rate": 0.0,
-  "peak_a_waiting": 8
+  "offered_rate": 0.2,
+  "completed_rate": 0.0376,
+  "peak_a_waiting": 2
 }

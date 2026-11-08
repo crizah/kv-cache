@@ -1220,7 +1220,7 @@
       "forward_hooks": null,
       "msprobe_dump_config": null,
       "world_size": 1,
-      "last_gen_throughput": 87.46193552490998,
+      "last_gen_throughput": 174.43056503892305,
       "memory_usage": {
         "weight": 64.635,
         "kvcache": 52.234,

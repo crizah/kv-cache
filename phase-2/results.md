@@ -86,6 +86,7 @@ curl -X POST http://172.18.0.2:8001/flush_cache
 curl -X POST http://172.18.0.3:8001/flush_cache
 
 ### running this bitch
+- baseline
 lets start with baseline?
 okay so, the msp numbers were skewed because we ran it without ignore_eos=True. so what we think is 80-100 is actuall around 90 and 100 saturation, which is fine. the entire point is to show numbers on load, but yeah
 but its okay, we added 40, 50 and 60 as well, just to get a better "80" and "100" approximate
@@ -94,3 +95,9 @@ the msp is intermediary value anyways. so even when running phase-1 actual exp, 
 
 nvm it corrected itself? idek whats happening guys
 whats happening is that loading a server with 24k req is very easy to do (we also saw that with msp calc) so we are pivoting and measuring for 16k instead
+
+the 16k 100% sat levels are messed up too man. way too saturated for it
+but it is what it is. for the other 2 lengths, 80 and 100 numbers really are 80 and 100 numbers
+the 16k is too much, the 60sec window is too less but whatever.
+
+- ours

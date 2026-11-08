@@ -8,6 +8,7 @@ Usage:
   python run_phase2.py --system nixl   --lengths 2048,8192,24576 --sat 0,80,100
   python run_phase2.py --system l3     --lengths 2048,8192,24576 --sat 0,80,100 --l3-dir /mnt/l3
   python run_phase2.py --system baseline --lengths 2048,8192,24576 --sat 0,80,100 --host-a nodeA --host-b nodeB
+  python3 run_phase2.py --system nixl --lengths 2048,8192,16384 --host-a 172.18.0.2 --host-b 172.18.0.3 --sat 0,80,100 --gpu-a 3 --gpu-b 5 --out-dir phase-2/results/nixl
 
 Flags:
   --system        {nixl,l3,baseline}
@@ -462,55 +463,27 @@ class ChurnProcess:
 
 # ── key computation ───────────────────────────────────────────────────────────
 
-def get_page_keys(cont_a: str, doc: dict, length: int, page_size: int,
-                  keys_cache_dir: str) -> list[int] | None:
-    """
-    Compute HiCache page keys for a document via docker exec on nodeA.
-    Results are cached in keys_cache_dir/keys_{length}.json.
-    """
-    cache_p = Path(keys_cache_dir) / f"keys_{length}.json"
-    if cache_p.exists():
-        with open(cache_p) as f:
-            cached = json.load(f)
-        doc_idx = cached.get(str(doc.get("_idx", -1)))
-        if doc_idx is not None:
-            return doc_idx
-
-    # run key computation on nodeA
-    script = (
-        "import sys, json; "
-        "from sglang.srt.mem_cache.hicache import compute_page_hash_key; "
-        "ids = json.loads(sys.argv[1]); ps = int(sys.argv[2]); "
-        "keys = [compute_page_hash_key(ids[i:i+ps]) for i in range(0, len(ids), ps)]; "
-        "print(json.dumps(keys))"
-    )
-    try:
-        res = docker_exec(cont_a, [
-            "python3", "-c", script,
-            json.dumps(doc["ids"]), str(page_size),
-        ], timeout=30)
-        keys = json.loads(res.stdout.strip())
-        return keys
-    except Exception as e:
-        print(f"  [keys] failed to compute keys: {e}")
-        return None
-
-
 # ── tfw polling ───────────────────────────────────────────────────────────────
 
-def poll_nixl_keys(agent_a_url: str, keys: list[int],
-                   since: int = 0) -> tuple[bool, float]:
-    """Poll A's /keys endpoint until all page keys appear. Returns (ok, elapsed)."""
+def nixl_key_count(agent_a_url: str) -> int:
+    """Return the number of keys currently registered on A's agent."""
+    try:
+        resp = urllib.request.urlopen(f"{agent_a_url}/keys", timeout=5)
+        data = json.loads(resp.read())
+        return len(data)
+    except Exception:
+        return 0
+
+
+def poll_nixl_count(agent_a_url: str, count_before: int,
+                    expected_new: int) -> tuple[bool, float]:
+    """Poll until A's key count increases by at least expected_new. Returns (ok, elapsed)."""
     t0       = time.perf_counter()
     deadline = t0 + TFW_TIMEOUT_S
     while time.time() < deadline:
         try:
-            resp = urllib.request.urlopen(
-                f"{agent_a_url}/keys?hashes={','.join(str(k) for k in keys)}",
-                timeout=5,
-            )
-            data = json.loads(resp.read())
-            if len(data) == len(keys):
+            current = nixl_key_count(agent_a_url)
+            if current >= count_before + expected_new:
                 return True, time.perf_counter() - t0
         except Exception:
             pass
@@ -835,7 +808,10 @@ def main():
                     def do_trial(row=row, doc=doc) -> dict:
                         suffix_a = rand_ids(rng, SUFFIX_TOKENS)
                         suffix_b = rand_ids(rng, SUFFIX_TOKENS)
-                        keys = None
+
+                        # snapshot key count before sending to A (for count-based tfw)
+                        keys_before = nixl_key_count(agent_a_url) if system == "nixl" else 0
+                        expected_new_keys = math.ceil(length / page_size)
 
                         # ── step 1: write window (send to A, max_new_tokens=1) ──
                         a_res = stream_generate(
@@ -859,18 +835,15 @@ def main():
                         tfw_ok  = False
                         tfw_s   = None
                         if system != "baseline":
-                            keys = get_page_keys(
-                                args.cont_a, doc, length, page_size, keys_cache_dir
-                            )
-                            if keys is None:
-                                row["note"] = "key computation failed"
-                                row["valid"] = False
-                                return row
-
                             if system == "nixl":
-                                tfw_ok, tfw_s = poll_nixl_keys(agent_a_url, keys)
+                                tfw_ok, tfw_s = poll_nixl_count(
+                                    agent_a_url, keys_before, expected_new_keys
+                                )
                             elif system == "l3":
-                                tfw_ok, tfw_s = poll_l3_files(args.l3_dir, keys)
+                                raise SystemExit(
+                                    "l3 tfw polling requires page key computation which is "
+                                    "not available in this SGLang build. Cannot run l3 arm."
+                                )
 
                             if not tfw_ok:
                                 row["tfw_s"]  = tfw_s
