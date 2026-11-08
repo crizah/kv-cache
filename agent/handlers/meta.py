@@ -46,15 +46,19 @@ def handle_keys(req_handler, backend, query: str) -> None:
     requested = [h for h in raw.split(",") if h]
     result = {}
     with backend.lock:
+        total_keys = len(backend.local_keys)
+        sample_keys = list(backend.local_keys.keys())[:3]
         for h in requested:
             entry = backend.local_keys.get(h)
             if entry is not None:
-                result[str(h)] = list(entry)  # [k_ptr, v_ptr, elem_bytes]
+                result[str(h)] = list(entry)
 
+    logger.info(f"{TAG} /keys: requested={len(requested)} found={len(result)} "
+                f"total_stored={total_keys} sample_stored={sample_keys} "
+                f"requested_sample={requested[:3]}")
     body = json.dumps(result).encode()
     req_handler.send_response(200)
     req_handler.send_header("Content-Type", "application/json")
     req_handler.send_header("Content-Length", str(len(body)))
     req_handler.end_headers()
     req_handler.wfile.write(body)
-    logger.info(f"{TAG} /keys: requested={len(requested)} found={len(result)}")

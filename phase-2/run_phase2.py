@@ -113,13 +113,13 @@ def http_post_stream(url: str, payload: dict, timeout: int = 300):
 
 
 def flush_node(sglang_url: str):
-    data = json.dumps({}).encode()
-    req  = urllib.request.Request(
-        f"{sglang_url}/flush_cache", data=data,
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as r:
-        r.read()  # drain; body may be empty
+    req = urllib.request.Request(f"{sglang_url}/flush_cache", data=b"")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        if e.code not in (200, 400):  # 400 = already flushed / no-op on some builds
+            raise
 
 
 def waiting_queue(sglang_url: str) -> tuple[int, int]:
@@ -265,7 +265,10 @@ def calibrate(system: str, cont_a: str, cont_b: str, l3_dir: str | None,
     if system == "nixl":
         try:
             # start iperf3 server on B
-            docker_exec(cont_b, ["pkill", "-f", "iperf3"], check=False)
+            try:
+                docker_exec(cont_b, ["pkill", "-f", "iperf3"])
+            except Exception:
+                pass
             time.sleep(0.5)
             srv = subprocess.Popen(
                 ["docker", "exec", cont_b, "iperf3", "-s", "-1"],

@@ -86,7 +86,7 @@ curl -X POST http://172.18.0.2:8001/flush_cache
 curl -X POST http://172.18.0.3:8001/flush_cache
 
 ### running this bitch
-- baseline
+- baseline (we didnt even need to run this)
 lets start with baseline?
 okay so, the msp numbers were skewed because we ran it without ignore_eos=True. so what we think is 80-100 is actuall around 90 and 100 saturation, which is fine. the entire point is to show numbers on load, but yeah
 but its okay, we added 40, 50 and 60 as well, just to get a better "80" and "100" approximate
