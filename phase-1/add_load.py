@@ -111,6 +111,7 @@ async def _fire(session: aiohttp.ClientSession, sglang_url: str, doc: dict,
         },
         "stream": True,
     }
+    t_wall   = time.time()
     t0       = time.perf_counter()
     ttft     = None
     t_last   = None
@@ -141,9 +142,9 @@ async def _fire(session: aiohttp.ClientSession, sglang_url: str, doc: dict,
 
     if log_queue is not None and ttft is not None:
         await log_queue.put({
-            "t_start":  round(t0,     3),
-            "ttft":     round(ttft,   6),
-            "t_end":    round(t_last, 3),
+            "t_start":  round(t_wall,  3),
+            "ttft":     round(ttft,    6),
+            "t_end":    round(t_wall + (t_last - t0), 3),
             "tokens":   tokens,
             "gaps":     gaps,
         })
