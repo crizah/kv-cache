@@ -167,12 +167,17 @@ def node_urls(cfg: dict, node_id: str, host_override: str | None = None) -> tupl
     )
 
 
+MSP_TABLE = {
+    2048:  2.3283,
+    8192:  0.75,
+    16384: 0.31,
+    24576: 0.1875,
+}
+
 def load_msp(phase1_results: str, length: int) -> float:
-    p = Path(phase1_results) / f"msp_{length}.json"
-    if not p.exists():
-        raise SystemExit(f"MSP not found: {p}  — run find_msp.py --length {length} first")
-    with open(p) as f:
-        return float(json.load(f)["msp_req_per_s"])
+    if length in MSP_TABLE:
+        return MSP_TABLE[length]
+    raise SystemExit(f"No MSP value for length={length}. Add it to MSP_TABLE in run_phase2.py.")
 
 
 def load_docs(phase1_data: str, length: int) -> list[dict]:

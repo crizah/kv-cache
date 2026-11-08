@@ -38,6 +38,13 @@ we also need to have throttle consistency between the both phases. exact same th
 actually, we can merge the 2 phases even because thats better
 at the end of each cell of phase 2.1, we can also just then and there trigger the phase 2.2 on node B, where we ask B to pull and measure the ttft and effective speed. the only thing with this is that it will require ME to trigger the scripts from different nodes each time since they are on diff nodes altogether. maybe we can come with a way to automate the pull from nodeB
 
+so experiment design is for every arm, baseline, us and l3, we run fro the 3 prefix lengths
+for each length, we measure at 0, 40, 50, 60, 80, 100% saturations on nodeA and 5 different L's 
+- for baseline: we measure the ttft for each of these. this gives us the ttft when A doesnt have to do any writing to its host mem or to the file storage. so we get time for prefill of L + 1 decode step (negligable)
+
+- for us: we measure ttftA as before (should be the same as baseline), we measure tfw (which is the time it took for all cached pages to appear in memory via --write-through, this is the real cost of turning on write throuh against baseline) and we also do a pull from b, so we get ttftb (which is the nixl pull + prefill of 128t suffix + 1decode)
+
+- for l3: same ttftAn for tfw for l3 is the write to disk time, and ttftb is disk read plus prefill suffix plus decode. the end to end time however does include an eviction step. because we wanted b to read from disk and not from ram, we are evicting from ram. but this is a syscall and very negligible, so not isloating. if u want to, its derivable from end to end - sum of evrything else
 
 ### agent instructions
 Write phase-2/run_phase2.py. It runs on the host (stdlib only, no pip installs) and runs unattended for one arm of Phase 2 per invocation. It uses docker exec nodeA|nodeB for anything node-local and HTTP to the SGLang servers (ports from the project config.json; resolve container IPs with docker inspect on kvnet).
@@ -76,8 +83,11 @@ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nod
 curl http://172.18.0.2:8001/get_server_info | python3 -m json.tool | grep "hicache_storage_backend"
 
 curl -X POST http://172.18.0.2:8001/flush_cache
-  curl -X POST http://172.18.0.3:8001/flush_cache
+curl -X POST http://172.18.0.3:8001/flush_cache
 
 ### running this bitch
 lets start with baseline?
 okay so, the msp numbers were skewed because we ran it without ignore_eos=True. so what we think is 80-100 is actuall around 90 and 100 saturation, which is fine. the entire point is to show numbers on load, but yeah
+but its okay, we added 40, 50 and 60 as well, just to get a better "80" and "100" approximate
+
+the msp is intermediary value anyways. so even when running phase-1 actual exp, we need to recaliberate the actual load for the add laod script  to simulate actual x percentage load which we should get from this run anyways
