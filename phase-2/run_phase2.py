@@ -52,8 +52,9 @@ OUTPUT_TOKENS     = 1       # write window: 1 output token (we care about TTFT/w
 CHURN_OUTPUT_TOKENS = 256   # churn: full decode for TPOT signal
 TOKEN_MIN         = 100
 TOKEN_MAX         = 50_000
-CHURN_DOCS_SLICE  = slice(15, 25)   # docs 15–24 are churn
-TARGET_DOCS_SLICE = slice(0, 15)    # docs 0–14 are targets (5 per sat level)
+CHURN_DOCS_SLICE  = slice(15, 25)   # docs 15–24 are churn (kept hot on A)
+# Target docs: 0–14 and 25–39 (skip 15–24 churn). 30 total = 6 sat levels × 5 trials.
+TARGET_DOCS_INDICES = list(range(0, 15)) + list(range(25, 40))
 TARGETS_PER_SAT   = 5
 WARM_IN_S         = 30      # churn warm-in before baseline window
 BASELINE_WINDOW_S = 60      # churn-only baseline recording window
@@ -377,6 +378,9 @@ class Sampler:
                 w.writerows(self._rows)
         return self._rows
 
+    def peak_waiting(self) -> int:
+        return max((r.get("a_waiting", 0) for r in self._rows), default=0)
+
 
 # ── churn manager ─────────────────────────────────────────────────────────────
 
@@ -403,6 +407,8 @@ class ChurnProcess:
         self._cmd += ["--host", host]
         self._proc: subprocess.Popen | None = None
         self._stop_flag = threading.Event()
+        self._stats: dict = {}   # filled from last "Stopped." line of add_load output
+        self._rate = rate        # offered rate
 
     def start(self):
         self._stop_flag.clear()
@@ -410,9 +416,25 @@ class ChurnProcess:
         self._thread.start()
 
     def _watch(self):
+        import re
         while not self._stop_flag.is_set():
-            self._proc = subprocess.Popen(self._cmd)
+            self._proc = subprocess.Popen(self._cmd, stdout=subprocess.PIPE,
+                                          stderr=subprocess.STDOUT, text=True)
+            last_line = ""
+            for line in self._proc.stdout:
+                print(line, end="", flush=True)
+                last_line = line.strip()
             self._proc.wait()
+            # parse "Stopped. N sent (N ok, N err) over Xs — actual rate X req/s"
+            m = re.search(r"(\d+) sent \((\d+) ok.*?\) over ([\d.]+)s", last_line)
+            if m:
+                elapsed = float(m.group(3))
+                self._stats = {
+                    "sent": int(m.group(1)),
+                    "ok":   int(m.group(2)),
+                    "elapsed_s": elapsed,
+                    "completed_rate": round(int(m.group(2)) / elapsed, 4) if elapsed > 0 else 0,
+                }
             if self._stop_flag.is_set():
                 break
             if self._proc.returncode != 0:
@@ -428,6 +450,9 @@ class ChurnProcess:
             except subprocess.TimeoutExpired:
                 self._proc.kill()
         self._thread.join(timeout=15)
+
+    def stats(self) -> dict:
+        return {"offered_rate": self._rate, **self._stats}
 
 
 # ── key computation ───────────────────────────────────────────────────────────
@@ -616,7 +641,7 @@ def parse_args():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--system",   required=True, choices=["nixl", "l3", "baseline"])
     ap.add_argument("--lengths",  default="2048,8192,24576")
-    ap.add_argument("--sat",      default="0,80,100")
+    ap.add_argument("--sat",      default="0,40,50,60,80,100")
     ap.add_argument("--trials",   type=int, default=5)
     ap.add_argument("--throttle-gbps", type=float, default=6.0, dest="throttle_gbps")
     ap.add_argument("--gpu-a",    type=int, default=0, dest="gpu_a")
@@ -722,9 +747,26 @@ def main():
 
         for length in lengths:
             docs_all = load_docs(args.phase1_data, length)
-            target_docs = docs_all[TARGET_DOCS_SLICE]  # 0–14
-            for i, doc in enumerate(target_docs):
-                doc["_idx"] = i  # tag for key caching
+
+            # build ordered target list from indices 0–14 and 25–39 (skip 15–24 churn)
+            required = len(sats) * TARGETS_PER_SAT
+            if len(TARGET_DOCS_INDICES) < required:
+                raise SystemExit(
+                    f"Need {required} target doc indices for {len(sats)} sat levels "
+                    f"but TARGET_DOCS_INDICES only has {len(TARGET_DOCS_INDICES)}"
+                )
+            target_indices = TARGET_DOCS_INDICES[:required]
+            target_docs = []
+            for raw_idx in target_indices:
+                if raw_idx >= len(docs_all):
+                    raise SystemExit(
+                        f"length={length}: need doc index {raw_idx} "
+                        f"but file only has {len(docs_all)} docs. "
+                        f"Generate docs up to index {max(target_indices)} first."
+                    )
+                doc = dict(docs_all[raw_idx])
+                doc["_idx"] = raw_idx
+                target_docs.append(doc)
 
             for sat in sats:
                 cell_key = f"{length}_{sat}"
@@ -738,7 +780,7 @@ def main():
                 msp  = load_msp(args.phase1_results, length) if sat > 0 else 0.0
                 rate = (sat / 100.0) * msp
 
-                # select 5 target docs for this saturation level
+                # select 5 target docs for this saturation level (deterministic across arms)
                 sat_idx   = sats.index(sat)
                 cell_docs = target_docs[sat_idx * TARGETS_PER_SAT:(sat_idx + 1) * TARGETS_PER_SAT]
 
@@ -777,7 +819,7 @@ def main():
                 # trials
                 cell_rows: list[dict] = []
                 for trial_idx in range(args.trials):
-                    doc      = cell_docs[trial_idx % len(cell_docs)]
+                    doc      = cell_docs[trial_idx]
                     doc_idx  = doc["_idx"]
                     row: dict = {
                         "system": system, "length": length, "sat": sat,
@@ -907,8 +949,10 @@ def main():
                           f"eff_gbps={row.get('effective_gbps')}  {status}")
 
                 # stop churn and wait idle
+                churn_stats: dict = {}
                 if churn:
                     churn.stop()
+                    churn_stats = churn.stats()
                     print("  Waiting for A to go idle…")
                     wait_idle(sglang_a_url)
 
@@ -920,6 +964,9 @@ def main():
                     "valid_trials": sum(1 for r in cell_rows if r.get("valid")),
                     "total_trials": args.trials,
                     "baseline_tpot": baseline_tpot,
+                    "offered_rate":    churn_stats.get("offered_rate"),
+                    "completed_rate":  churn_stats.get("completed_rate"),
+                    "peak_a_waiting":  sampler.peak_waiting(),
                 }
                 (out_dir / f"summary_{length}_{sat}.json").write_text(
                     json.dumps(summary, indent=2)

@@ -75,5 +75,9 @@ docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nod
 
 curl http://172.18.0.2:8001/get_server_info | python3 -m json.tool | grep "hicache_storage_backend"
 
+curl -X POST http://172.18.0.2:8001/flush_cache
+  curl -X POST http://172.18.0.3:8001/flush_cache
+
 ### running this bitch
 lets start with baseline?
+okay so, the msp numbers were skewed because we ran it without ignore_eos=True. so what we think is 80-100 is actuall around 90 and 100 saturation, which is fine. the entire point is to show numbers on load, but yeah
