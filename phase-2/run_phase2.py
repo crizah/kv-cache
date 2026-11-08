@@ -582,7 +582,7 @@ def evict_l3(cont_a: str, l3_dir: str, keys: list[int], method: str):
             "POSIX_FADV_DONTNEED = 4; "
             "libc = ctypes.CDLL('libc.so.6'); "
             "import glob; "
-            "files = sum([glob.glob(f'{l3_dir}/{k}*.bin') for k in " + json.dumps([str(k) for k in keys]) + "], []); "
+            "files = sum([glob.glob(" + json.dumps(l3_dir) + " + '/' + k + '*.bin') for k in " + json.dumps([str(k) for k in keys]) + "], []); "
             "[libc.posix_fadvise(open(f,'rb').fileno(), 0, 0, POSIX_FADV_DONTNEED) "
             "for f in files if os.path.exists(f)]"
         )
