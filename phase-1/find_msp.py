@@ -44,7 +44,7 @@ import aiohttp
 import requests
 
 # ── constants ─────────────────────────────────────────────────────────────────
-L_DOCS          = 25       # number of cached documents to keep warm on nodeA
+L_DOCS          = 40       # number of cached documents to keep warm on nodeA
 SUFFIX_TOKENS   = 128      # fresh suffix appended to every generated request
 OUTPUT_TOKENS   = 256      # max_new_tokens for every request
 PAGE_SIZE       = 64       # must match --page-size on the SGLang server
