@@ -875,6 +875,10 @@ def main():
 
                         page_keys = compute_page_keys(doc["ids"], page_size) if system != "baseline" else []
 
+                        # ── pre-trial: clear l3 so churn files don't fill disk ──
+                        if system == "l3":
+                            clear_l3_dir(args.cont_a, args.cont_b, args.l3_dir_cont)
+
                         # ── step 1: write window (send to A, max_new_tokens=1) ──
                         a_res = stream_generate(
                             f"{sglang_a_url}/generate",
@@ -953,9 +957,7 @@ def main():
                         else:
                             row["valid"] = True
 
-                        # ── cleanup: delete L3 files for this doc ──
                         if system == "l3" and page_keys:
-                            delete_l3_files(args.cont_a, args.l3_dir_cont, page_keys)
                             l3_keys_written.extend(page_keys)
 
                         return row
