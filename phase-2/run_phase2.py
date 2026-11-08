@@ -674,6 +674,8 @@ def parse_args():
     ap.add_argument("--mps-label", default="", dest="mps_label")
     ap.add_argument("--evict",    default="fadvise", choices=["fadvise", "dropcaches", "none"])
     ap.add_argument("--l3-dir",   default=None, dest="l3_dir")
+    ap.add_argument("--l3-dir-cont", default="/root/kv-cache/l3", dest="l3_dir_cont",
+                    help="L3 dir path as seen inside the container (for eviction)")
     ap.add_argument("--cont-a",   default="nodeA", dest="cont_a")
     ap.add_argument("--cont-b",   default="nodeB", dest="cont_b")
     ap.add_argument("--host-a",   default=None, dest="host_a",
@@ -898,7 +900,7 @@ def main():
 
                             # ── step 3: evict (l3 only) ──
                             if system == "l3" and args.evict != "none":
-                                evict_l3(args.cont_a, args.l3_dir, page_keys, args.evict)
+                                evict_l3(args.cont_a, args.l3_dir_cont, page_keys, args.evict)
 
                         # ── step 4: pull window (flush B, send to B) ──
                         if system != "baseline":
@@ -941,8 +943,8 @@ def main():
                             row["valid"] = True
 
                         # ── cleanup: delete L3 files for this doc ──
-                        if system == "l3" and keys:
-                            delete_l3_files(args.l3_dir, keys)
+                        if system == "l3" and page_keys:
+                            delete_l3_files(args.l3_dir, page_keys)
                             l3_keys_written.extend(page_keys)
 
                         return row
