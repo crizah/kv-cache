@@ -1,0 +1,27 @@
+{
+  "system": "nixl",
+  "git_sha": "31b3c5aa1853682cdd3cba4be8b9750b7fa1d5cd",
+  "flags": {
+    "system": "nixl",
+    "lengths": "2048,8192,16384",
+    "sat": "0,80,100",
+    "trials": 5,
+    "throttle_gbps": 6.0,
+    "gpu_a": 3,
+    "gpu_b": 5,
+    "mps_label": "",
+    "evict": "fadvise",
+    "l3_dir": null,
+    "cont_a": "nodeA",
+    "cont_b": "nodeB",
+    "host_a": "172.18.0.2",
+    "host_b": "172.18.0.3",
+    "config": "/home/kishor_kumar/Naween/shaizah/kv-cache/phase-2/../config.json",
+    "seed": 42,
+    "phase1_data": "/home/kishor_kumar/Naween/shaizah/kv-cache/phase-2/../phase-1/data",
+    "phase1_results": "/home/kishor_kumar/Naween/shaizah/kv-cache/phase-2/../phase-1/results",
+    "out_dir": "phase-2/results/nixl"
+  },
+  "timestamp": "20261108_230954",
+  "mps_label": ""
+}

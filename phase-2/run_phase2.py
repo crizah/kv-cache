@@ -6,7 +6,7 @@ commands and direct HTTP to SGLang ports (read from config.json).
 
 Usage:
   python run_phase2.py --system nixl   --lengths 2048,8192,24576 --sat 0,80,100
-  python run_phase2.py --system l3     --lengths 2048,8192,24576 --sat 0,80,100 --l3-dir /mnt/l3
+  python run_phase2.py --system l3     --lengths 2048,8192,24576 --sat 0,80,100 --l3-dir /root/kv-cache/l3-cach
   python run_phase2.py --system baseline --lengths 2048,8192,24576 --sat 0,80,100 --host-a nodeA --host-b nodeB
   python3 run_phase2.py --system nixl --lengths 2048,8192,16384 --host-a 172.18.0.2 --host-b 172.18.0.3 --sat 0,80,100 --gpu-a 3 --gpu-b 5 --out-dir phase-2/results/nixl
 
@@ -546,11 +546,11 @@ def poll_l3_files(l3_dir: str, keys: list[int]) -> tuple[bool, float]:
             sizes = {}
             all_exist = True
             for k in keys:
-                p = Path(l3_dir) / str(k)
-                if not p.exists():
+                matches = list(Path(l3_dir).glob(f"{k}*.bin"))
+                if not matches:
                     all_exist = False
                     break
-                sizes[k] = p.stat().st_size
+                sizes[k] = matches[0].stat().st_size
             if all_exist and sizes == prev_sizes and all(s > 0 for s in sizes.values()):
                 return True, time.perf_counter() - t0
             prev_sizes = sizes
@@ -564,10 +564,11 @@ def poll_l3_files(l3_dir: str, keys: list[int]) -> tuple[bool, float]:
 
 def delete_l3_files(l3_dir: str, keys: list[int]):
     for k in keys:
-        try:
-            Path(l3_dir, str(k)).unlink(missing_ok=True)
-        except Exception:
-            pass
+        for p in Path(l3_dir).glob(f"{k}*.bin"):
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 # ── eviction ──────────────────────────────────────────────────────────────────
@@ -580,7 +581,8 @@ def evict_l3(cont_a: str, l3_dir: str, keys: list[int], method: str):
             "import os, ctypes; "
             "POSIX_FADV_DONTNEED = 4; "
             "libc = ctypes.CDLL('libc.so.6'); "
-            "files = " + json.dumps([f"{l3_dir}/{k}" for k in keys]) + "; "
+            "import glob; "
+            "files = sum([glob.glob(f'{l3_dir}/{k}*.bin') for k in " + json.dumps([str(k) for k in keys]) + "], []); "
             "[libc.posix_fadvise(open(f,'rb').fileno(), 0, 0, POSIX_FADV_DONTNEED) "
             "for f in files if os.path.exists(f)]"
         )

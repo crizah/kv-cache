@@ -1,0 +1,4 @@
+{
+  "system": "nixl",
+  "iperf3_error": "Command '['docker', 'exec', 'nodeA', 'iperf3', '-c', '172.18.0.3', '-t', '5', '-J']' returned non-zero exit status 127."
+}

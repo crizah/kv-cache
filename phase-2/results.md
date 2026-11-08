@@ -101,3 +101,9 @@ but it is what it is. for the other 2 lengths, 80 and 100 numbers really are 80 
 the 16k is too much, the 60sec window is too less but whatever.
 
 - ours
+OKAY finally bro that took so much out of me. all for a fuckass bug.
+whatever. twf is consistently around 0.2s across all saturations and prefix lengths 
+also, with the network throttle, recompute becoumes much cheaper than pulling. break even around 12-14k id say instead of our ~5k lol
+which is fine, good even. i should do phase-0 once again tho. if i have the energy after phase-1 tmr
+
+- l3
