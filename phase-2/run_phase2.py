@@ -7,7 +7,7 @@ commands and direct HTTP to SGLang ports (read from config.json).
 Usage:
   python run_phase2.py --system nixl   --lengths 2048,8192,24576 --sat 0,80,100
   python run_phase2.py --system l3     --lengths 2048,8192,24576 --sat 0,80,100 --l3-dir /mnt/l3
-  python run_phase2.py --system baseline --lengths 2048,8192,24576 --sat 0,80,100
+  python run_phase2.py --system baseline --lengths 2048,8192,24576 --sat 0,80,100 --host-a nodeA --host-b nodeB
 
 Flags:
   --system        {nixl,l3,baseline}
@@ -148,13 +148,14 @@ def load_config(config_path: str) -> dict:
         return json.load(f)
 
 
-def node_urls(cfg: dict, node_id: str) -> tuple[str, str]:
+def node_urls(cfg: dict, node_id: str, host_override: str | None = None) -> tuple[str, str]:
     """Return (agent_url, sglang_url) for node."""
     nodes = {n["id"]: n for n in cfg["nodes"]}
-    n = nodes[node_id]
+    n    = nodes[node_id]
+    host = host_override if host_override else n["ip"]
     return (
-        f"http://{n['ip']}:{n['http']}",
-        f"http://{n['ip']}:{n['sglang']}",
+        f"http://{host}:{n['http']}",
+        f"http://{host}:{n['sglang']}",
     )
 
 
@@ -638,6 +639,10 @@ def parse_args():
     ap.add_argument("--l3-dir",   default=None, dest="l3_dir")
     ap.add_argument("--cont-a",   default="nodeA", dest="cont_a")
     ap.add_argument("--cont-b",   default="nodeB", dest="cont_b")
+    ap.add_argument("--host-a",   default=None, dest="host_a",
+                    help="Override nodeA IP/hostname (e.g. when running from host outside docker network)")
+    ap.add_argument("--host-b",   default=None, dest="host_b",
+                    help="Override nodeB IP/hostname")
     ap.add_argument("--config",   default=str(HERE / "../config.json"))
     ap.add_argument("--seed",     type=int, default=42)
     ap.add_argument("--phase1-data",    default=str(HERE / "../phase-1/data"),    dest="phase1_data")
@@ -664,8 +669,8 @@ def main():
     keys_cache_dir = str(HERE / "data")
     Path(keys_cache_dir).mkdir(parents=True, exist_ok=True)
 
-    agent_a_url, sglang_a_url = node_urls(cfg, "A")
-    agent_b_url, sglang_b_url = node_urls(cfg, "B")
+    agent_a_url, sglang_a_url = node_urls(cfg, "A", args.host_a)
+    agent_b_url, sglang_b_url = node_urls(cfg, "B", args.host_b)
 
     # page size from config
     model_name = cfg["model"]
