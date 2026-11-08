@@ -144,7 +144,7 @@ class AgentBackend(HiCacheStorage):
                 timeout=self.cfg.pull_timeout_sec,
             )
             resp.raise_for_status()
-            fetched = {int(h): tuple(v) for h, v in resp.json().items()}
+            fetched = {h: tuple(v) for h, v in resp.json().items()}
             if peer_id not in self._peer_key_cache:
                 self._peer_key_cache[peer_id] = {}
             self._peer_key_cache[peer_id].update(fetched)
