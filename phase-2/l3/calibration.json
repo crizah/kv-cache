@@ -1,0 +1,4 @@
+{
+  "system": "l3",
+  "l3_dd_error": "Command '['docker', 'exec', 'nodeA', 'bash', '-c', 'dd if=/dev/zero of=/home/kishor_kumar/Naween/shaizah/kv-cache/l3/__cal_test__ bs=64M count=32 oflag=direct 2>&1 && dd if=/home/kishor_kumar/Naween/shaizah/kv-cache/l3/__cal_test__ of=/dev/null bs=64M count=32 iflag=direct 2>&1 && rm -f /home/kishor_kumar/Naween/shaizah/kv-cache/l3/__cal_test__']' returned non-zero exit status 1."
+}

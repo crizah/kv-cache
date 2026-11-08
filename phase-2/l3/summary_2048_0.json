@@ -1,0 +1,10 @@
+{
+  "length": 2048,
+  "sat": 0,
+  "valid_trials": 5,
+  "total_trials": 5,
+  "baseline_tpot": {},
+  "offered_rate": null,
+  "completed_rate": null,
+  "peak_a_waiting": 0
+}

@@ -107,3 +107,5 @@ also, with the network throttle, recompute becoumes much cheaper than pulling. b
 which is fine, good even. i should do phase-0 once again tho. if i have the energy after phase-1 tmr
 
 - l3
+DONE 
+and we look good asf hehehehe
