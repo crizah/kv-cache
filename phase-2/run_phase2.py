@@ -296,22 +296,28 @@ def check_server_info(system: str, sglang_a_url: str, sglang_b_url: str,
     (out_dir / "server_info_b.json").write_text(json.dumps(info_b, indent=2))
 
     def check(info: dict, label: str):
-        args_str = json.dumps(info).lower()
+        # look for the specific storage backend field, not freetext
+        backend = str(info.get("hicache_storage_backend",
+                      info.get("storage_backend", ""))).lower()
+        policy  = str(info.get("hicache_write_policy",
+                      info.get("write_policy", ""))).lower()
+        has_backend = backend not in ("", "none", "null")
+
         if system == "nixl":
-            if "dynamic" not in args_str:
-                raise SystemExit(f"{label}: expected --hicache-storage-backend dynamic for nixl")
-            if "write_through" not in args_str:
-                raise SystemExit(f"{label}: expected write_through policy for nixl")
+            if backend != "dynamic":
+                raise SystemExit(f"{label}: expected hicache_storage_backend=dynamic for nixl, got {backend!r}")
+            if policy != "write_through":
+                raise SystemExit(f"{label}: expected write_through policy for nixl, got {policy!r}")
         elif system == "l3":
-            if "file" not in args_str:
-                raise SystemExit(f"{label}: expected --hicache-storage-backend file for l3")
-            if "write_through" not in args_str:
-                raise SystemExit(f"{label}: expected write_through policy for l3")
+            if backend != "file":
+                raise SystemExit(f"{label}: expected hicache_storage_backend=file for l3, got {backend!r}")
+            if policy != "write_through":
+                raise SystemExit(f"{label}: expected write_through policy for l3, got {policy!r}")
         elif system == "baseline":
-            if "dynamic" in args_str or "file" in args_str:
-                raise SystemExit(f"{label}: baseline must have no storage backend")
-            if "write_through" in args_str:
-                raise SystemExit(f"{label}: baseline must not have write_through")
+            if has_backend:
+                raise SystemExit(f"{label}: baseline must have no storage backend, got {backend!r}")
+            if policy == "write_through":
+                raise SystemExit(f"{label}: baseline must not have write_through, got {policy!r}")
 
     check(info_a, "nodeA")
     check(info_b, "nodeB")
