@@ -54,6 +54,7 @@ def main():
     kv_events_cfg = json.dumps({
         "publisher": "zmq",
         "endpoint":  f"tcp://*:{cfg.kv_events_port}",
+        "topic":     "kv-events",
     })
 
     exports = {
