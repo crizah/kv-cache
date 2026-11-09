@@ -3,7 +3,7 @@
   "model_path": "/models/Qwen3-32B",
   "cpu_offload_gb": 0,
   "mem_fraction_static": 0.85,
-  "router": "ll",
+  "router": "cache-aware",
   "backend_module_path": "agent/backend.py",
   "meta_dir": "/.meta",
   "models": {
