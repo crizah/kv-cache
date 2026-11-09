@@ -74,9 +74,9 @@ class NixlService:
             self._peer_agents[peer_id] = remote_name
             logger.info(f"{TAG} NIXL handshake complete with peer {peer_id} remote_agent={remote_name}")
 
-    def set_active_peer(self, peer_id: str, peer_url: str) -> None:
+    def set_active_peer(self, peer_id: str | None, peer_url: str | None) -> None:
         """Called by generate handler before forwarding to SGLang."""
-        self._pending_peer = (peer_id, peer_url)
+        self._pending_peer = (peer_id, peer_url) if peer_id else None
         self._active_peer_id = peer_id
 
     @property

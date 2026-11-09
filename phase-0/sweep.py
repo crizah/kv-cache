@@ -9,14 +9,7 @@ Measures TTFT on B for three conditions per trial:
   local      immediately after pull: same prefix + another new suffix → B (hot cache)
 
 Usage:
-  python sweep.py \\
-    --a http://<A_HOST>:30000 \\
-    --b http://<B_HOST>:30001 \\
-    --a-meta http://<A_HOST>:8765 \\
-    --b-meta http://<B_HOST>:8766 \\
-    --lengths 128,256,512,1024,2048,4096,8192,16384 \\
-    --warmup 3 --trials 20 --suffix 128 --seed 42 \\
-    --out results/sweep.csv
+  python sweep.py --a http://nodeA:30000 --b http://nodeB:30000 --a-meta http://nodeA:8765 --b-meta http://nodeB:8766 --lengths 1024,2048,3072,4096,6144,8192,12288,16384,20480,24576,28672,32768 --warmup 3 --trials 20 --suffix 128 --seed 42 --out results/again_25/sweep.csv
 """
 
 import argparse

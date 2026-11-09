@@ -1,43 +1,52 @@
 #!/usr/bin/env python3
-"""exp.py – Measure proxy routing performance for a single prefix length.
+"""exp.py – Measure proxy routing performance across prefix lengths and saturation levels.
 
-Sends 75 requests through the proxy (50 cached-doc + 25 new), measures
-TTFT, end-to-end latency, TPOT, and cache hit rate per request, and
-reports a summary at the end.
-
-The proxy must be running and add_load.py must be holding nodeA at the
-desired saturation level before this script is started.
+Loops over every (length, sat) cell. For sat > 0, starts add_load.py at the
+appropriate rate, warms in, then sends 75 requests (50 cached + 25 new) through
+the proxy. For sat == 0, runs with no background load.
 
 Usage:
-  python exp.py --length 8192
+  python exp.py --lengths 2048,8192 --sat 0,80,100
 
 Flags:
   --config      path to config.json (default: ../config.json relative to script)
   --proxy-host  host where the proxy is reachable (default: localhost)
-  --length      prefix length being tested; one of 2048, 8192, 16384, 24576
+  --lengths     comma-separated prefix lengths (default: 2048,8192,16384,24576)
+  --sat         comma-separated saturation %% values (default: 0,40,80,100)
   --l-docs-dir  directory where L documents are stored (default: phase-1/data/)
   --out-dir     directory to write results (default: phase-1/results/)
-  --seed        rng seed for suffix generation (default: 42)
+  --seed        rng seed (default: 42)
 """
 
 import argparse
 import json
 import random
 import statistics
+import subprocess
+import sys
+import threading
 import time
 import uuid
 from pathlib import Path
 
 import requests
 
-SUFFIX_TOKENS  = 128
-OUTPUT_TOKENS  = 256
-TOKEN_MIN      = 100
-TOKEN_MAX      = 50_000
+SUFFIX_TOKENS   = 128
+OUTPUT_TOKENS   = 256
+TOKEN_MIN       = 100
+TOKEN_MAX       = 50_000
+WARM_IN_S       = 30
 
-TOTAL_REQUESTS = 75
-CACHED_REQUESTS = 50   # use L docs + fresh suffix; sent through proxy
-NEW_REQUESTS    = 25   # random tokens of length prefix_length + suffix_length
+TOTAL_REQUESTS  = 20
+CACHED_REQUESTS = 10
+NEW_REQUESTS    = 10
+
+MSP_TABLE = {
+    2048:  2.3283,
+    8192:  0.75,
+    16384: 0.20,
+    24576: 0.1875,
+}
 
 
 def rand_ids(rng: random.Random, n: int) -> list[int]:
@@ -54,6 +63,37 @@ def proxy_url(cfg: dict, proxy_host: str) -> str:
     return f"http://{proxy_host}:{port}"
 
 
+def node_sglang_url(cfg: dict, host_override: str | None = None) -> str:
+    nodes = {n["id"]: n for n in cfg["nodes"]}
+    n = nodes["A"]
+    host = host_override if host_override else n["ip"]
+    return f"http://{host}:{n['sglang']}"
+
+
+def warm_node_a(sglang_url: str, docs: list[dict], rng: random.Random):
+    """Send each cached doc directly to A's SGLang to populate its KV cache."""
+    import urllib.request
+    print(f"  Warming nodeA with {len(docs)} docs…", end="", flush=True)
+    for doc in docs:
+        suffix = rand_ids(rng, SUFFIX_TOKENS)
+        payload = json.dumps({
+            "input_ids": doc["ids"] + suffix,
+            "sampling_params": {"temperature": 0, "max_new_tokens": 1},
+            "stream": False,
+        }).encode()
+        req = urllib.request.Request(
+            f"{sglang_url}/generate", data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                r.read()
+            print(".", end="", flush=True)
+        except Exception as e:
+            print(f"[warn: {e}]", end="", flush=True)
+    print(" done")
+
+
 def load_docs(length: int, l_docs_dir: str) -> list[dict]:
     p = Path(l_docs_dir) / f"L_docs_{length}.json"
     if not p.exists():
@@ -62,12 +102,10 @@ def load_docs(length: int, l_docs_dir: str) -> list[dict]:
         )
     with open(p) as f:
         docs = json.load(f)
-    print(f"Loaded {len(docs)} L documents from {p}")
     return docs
 
 
 def stream_request(url: str, payload: dict, req_id: str) -> dict:
-    """POST one streaming request; return timing, cache, and routing info."""
     headers = {"X-Request-Id": req_id, "Content-Type": "application/json"}
     t_start = time.perf_counter()
     ttft    = None
@@ -111,21 +149,21 @@ def stream_request(url: str, payload: dict, req_id: str) -> dict:
     hit_rate = (cached_tokens / prompt_tokens) if (cached_tokens is not None and prompt_tokens and prompt_tokens > 0) else None
 
     return {
-        "req_id":       req_id,
-        "ttft_s":       round(ttft,  4) if ttft  is not None else None,
-        "e2e_s":        round(e2e,   4) if e2e   is not None else None,
-        "tpot_s":       round(tpot,  4) if tpot  is not None else None,
+        "req_id":        req_id,
+        "ttft_s":        round(ttft,  4) if ttft  is not None else None,
+        "e2e_s":         round(e2e,   4) if e2e   is not None else None,
+        "tpot_s":        round(tpot,  4) if tpot  is not None else None,
         "output_tokens": chunks,
         "cached_tokens": cached_tokens,
         "prompt_tokens": prompt_tokens,
         "hit_rate":      round(hit_rate, 4) if hit_rate is not None else None,
-        "served_by":    served_by,
-        "pulled_from":  pulled_from,
-        "error":        error,
+        "served_by":     served_by,
+        "pulled_from":   pulled_from,
+        "error":         error,
     }
 
 
-def print_summary(rows: list[dict]):
+def print_summary(rows: list[dict], length: int, sat: int):
     def p(label: str, vals: list[float], unit: str = "s"):
         if not vals:
             print(f"  {label}: n/a")
@@ -135,19 +173,19 @@ def print_summary(rows: list[dict]):
         p95 = s[int(0.95 * len(s))]
         print(f"  {label}: p50={p50:.3f}{unit}  p95={p95:.3f}{unit}  n={len(s)}")
 
-    all_rows     = [r for r in rows if r["error"] is None]
-    cached_rows  = [r for r in all_rows if r.get("kind") == "cached"]
-    new_rows     = [r for r in all_rows if r.get("kind") == "new"]
+    all_rows    = [r for r in rows if r["error"] is None]
+    cached_rows = [r for r in all_rows if r.get("kind") == "cached"]
+    new_rows    = [r for r in all_rows if r.get("kind") == "new"]
 
-    print(f"\n── Summary ({len(all_rows)}/{len(rows)} requests succeeded) ──")
+    print(f"\n── Summary  length={length}  sat={sat}  ({len(all_rows)}/{len(rows)} ok) ──")
     print("TTFT:")
-    p("all    ", [r["ttft_s"] for r in all_rows if r["ttft_s"] is not None])
+    p("all    ", [r["ttft_s"] for r in all_rows    if r["ttft_s"] is not None])
     p("cached ", [r["ttft_s"] for r in cached_rows if r["ttft_s"] is not None])
-    p("new    ", [r["ttft_s"] for r in new_rows if r["ttft_s"] is not None])
+    p("new    ", [r["ttft_s"] for r in new_rows    if r["ttft_s"] is not None])
     print("E2E:")
-    p("all    ", [r["e2e_s"] for r in all_rows if r["e2e_s"] is not None])
+    p("all    ", [r["e2e_s"]  for r in all_rows    if r["e2e_s"]  is not None])
     print("TPOT:")
-    p("all    ", [r["tpot_s"] for r in all_rows if r["tpot_s"] is not None], unit="s/tok")
+    p("all    ", [r["tpot_s"] for r in all_rows    if r["tpot_s"] is not None], unit="s/tok")
 
     hit_all    = [r["hit_rate"] for r in all_rows    if r["hit_rate"] is not None]
     hit_cached = [r["hit_rate"] for r in cached_rows if r["hit_rate"] is not None]
@@ -167,88 +205,171 @@ def print_summary(rows: list[dict]):
     print(f"Pulls: {pulls}/{len(all_rows)}")
 
 
+class LoadProcess:
+    """Runs add_load.py as a subprocess at a fixed req/s rate."""
+
+    def __init__(self, sglang_url: str, length: int, rate: float,
+                 l_docs_dir: str, gaps_log: str, seed: int, config: str):
+        here = Path(__file__).parent.resolve()
+        host = sglang_url.split("//")[1].split(":")[0]
+        self._cmd = [
+            sys.executable, str(here / "add_load.py"),
+            "--config",     config,
+            "--length",     str(length),
+            "--rate",       f"{rate:.6f}",
+            "--l-docs-dir", l_docs_dir,
+            "--doc-range",  "15:25",
+            "--gaps-log",   gaps_log,
+            "--seed",       str(seed),
+            "--host",       host,
+        ]
+        self._proc: subprocess.Popen | None = None
+        self._stop_flag = threading.Event()
+        self._rate = rate
+
+    def start(self):
+        self._stop_flag.clear()
+        self._thread = threading.Thread(target=self._watch, daemon=True)
+        self._thread.start()
+
+    def _watch(self):
+        while not self._stop_flag.is_set():
+            self._proc = subprocess.Popen(self._cmd, stdout=subprocess.PIPE,
+                                          stderr=subprocess.STDOUT, text=True)
+            for line in self._proc.stdout:
+                print(line, end="", flush=True)
+            self._proc.wait()
+            if self._stop_flag.is_set():
+                break
+            if self._proc.returncode != 0:
+                print(f"  [load] died (rc={self._proc.returncode}), restarting…")
+                time.sleep(1)
+
+    def stop(self):
+        self._stop_flag.set()
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+        self._thread.join(timeout=15)
+
+
 def main():
     here = Path(__file__).parent.resolve()
 
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default=str(here / "../config.json"),
-                    help="Path to config.json (default: ../config.json relative to script)")
-    ap.add_argument("--proxy-host", default="localhost", dest="proxy_host",
-                    help="Host where the proxy is reachable (default: localhost)")
-    ap.add_argument("--length", type=int, required=True, choices=[2048, 8192, 16384, 24576],
-                    help="Prefix length being tested (tokens)")
-    ap.add_argument("--l-docs-dir", default=str(here / "data"),
-                    help="Directory where L documents are stored (default: phase-1/data/)")
-    ap.add_argument("--out-dir", default=str(here / "results"),
-                    help="Directory to write results (default: phase-1/results/)")
-    ap.add_argument("--seed", type=int, default=42)
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--config",     default=str(here / "../config.json"))
+    ap.add_argument("--proxy-host", default="localhost", dest="proxy_host")
+    ap.add_argument("--host-a",     default=None, dest="host_a",
+                    help="Override nodeA IP for warm-up (default: from config)")
+    ap.add_argument("--lengths",    default="2048,8192,16384,24576")
+    ap.add_argument("--sat",        default="0,40,80,100")
+    ap.add_argument("--l-docs-dir", default=str(here / "data"), dest="l_docs_dir")
+    ap.add_argument("--out-dir",    default=str(here / "results"), dest="out_dir")
+    ap.add_argument("--seed",       type=int, default=42)
     args = ap.parse_args()
 
-    cfg   = load_config(args.config)
-    purl  = proxy_url(cfg, args.proxy_host)
-    docs  = load_docs(args.length, args.l_docs_dir)
-    rng   = random.Random(args.seed)
+    lengths = [int(x) for x in args.lengths.split(",")]
+    sats    = [int(x) for x in args.sat.split(",")]
 
-    print(f"Proxy: {purl}")
-    print(f"Length={args.length}  cached={CACHED_REQUESTS}  new={NEW_REQUESTS}  total={TOTAL_REQUESTS}")
+    cfg         = load_config(args.config)
+    purl        = proxy_url(cfg, args.proxy_host)
+    sglang_url  = node_sglang_url(cfg, args.host_a)
+    rng         = random.Random(args.seed)
+    out_dir     = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     from tokenizers import Tokenizer
     tk_path = str(Path(args.config).parent / cfg["models"][cfg["model"]]["tokenizer_path"])
     tk = Tokenizer.from_file(tk_path)
 
-    # build request list: 50 cached + 25 new, shuffled
-    reqs = []
-    for doc in rng.sample(docs, CACHED_REQUESTS):
-        reqs.append({
-            "kind": "cached",
-            "payload": {
-                "text": doc["text"],
-                "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
-                "stream": True,
-                "stream_interval": 1,
-            },
-        })
-    for _ in range(NEW_REQUESTS):
-        ids = rand_ids(rng, args.length + SUFFIX_TOKENS)
-        reqs.append({
-            "kind": "new",
-            "payload": {
-                "text": tk.decode(ids),
-                "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
-                "stream": True,
-                "stream_interval": 1,
-            },
-        })
-    rng.shuffle(reqs)
-
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    ts = int(time.time())
-    out_path = out_dir / f"exp_{args.length}_{ts}.jsonl"
-
-    rows = []
     generate_url = f"{purl}/generate"
+    run_ts = int(time.time())
 
-    with open(out_path, "w") as f:
-        for i, req in enumerate(reqs):
-            req_id = str(uuid.uuid4())
-            print(f"[{i+1:>3}/{TOTAL_REQUESTS}] kind={req['kind']}", end="  ", flush=True)
-            result = stream_request(generate_url, req["payload"], req_id)
-            result["kind"] = req["kind"]
-            result["length"] = args.length
-            rows.append(result)
-            f.write(json.dumps(result) + "\n")
-            f.flush()
+    for length in lengths:
+        docs = load_docs(length, args.l_docs_dir)
 
-            status = f"ttft={result['ttft_s']}s  e2e={result['e2e_s']}s  hit={result['hit_rate']}  by={result['served_by']}"
-            if result["pulled_from"]:
-                status += f"  pull={result['pulled_from']}"
-            if result["error"]:
-                status = f"ERROR: {result['error']}"
-            print(status)
+        for sat in sats:
+            print(f"\n{'='*60}")
+            print(f"Cell: length={length}  sat={sat}")
 
-    print_summary(rows)
-    print(f"\nResults → {out_path}")
+            rate = (sat / 100.0) * MSP_TABLE[length]
+
+            # fixed deterministic cached docs (same across all sat levels for this length)
+            cell_docs = docs[:CACHED_REQUESTS]
+
+            # warm nodeA with the cached docs before starting the experiment
+            warm_node_a(sglang_url, cell_docs, rng)
+
+            # build request list
+            reqs = []
+            for doc in cell_docs:
+                reqs.append({
+                    "kind": "cached",
+                    "payload": {
+                        "text": doc["text"],
+                        "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
+                        "stream": True,
+                        "stream_interval": 1,
+                    },
+                })
+            for _ in range(NEW_REQUESTS):
+                ids = rand_ids(rng, length + SUFFIX_TOKENS)
+                reqs.append({
+                    "kind": "new",
+                    "payload": {
+                        "text": tk.decode(ids),
+                        "sampling_params": {"temperature": 0, "max_new_tokens": OUTPUT_TOKENS},
+                        "stream": True,
+                        "stream_interval": 1,
+                    },
+                })
+            rng.shuffle(reqs)
+
+            gaps_log = str(out_dir / f"gaps_{length}_{sat}_{run_ts}.jsonl")
+            load: LoadProcess | None = None
+
+            if sat > 0:
+                load = LoadProcess(sglang_url, length, rate,
+                                   args.l_docs_dir, gaps_log, args.seed, args.config)
+                load.start()
+                print(f"  Load started at {rate:.4f} req/s, warming in {WARM_IN_S}s…")
+                time.sleep(WARM_IN_S)
+
+            rows = []
+            out_path = out_dir / f"exp_{length}_{sat}_{run_ts}.jsonl"
+
+            with open(out_path, "w") as f:
+                for i, req in enumerate(reqs):
+                    req_id = str(uuid.uuid4())
+                    print(f"  [{i+1:>3}/{TOTAL_REQUESTS}] kind={req['kind']}", end="  ", flush=True)
+                    result = stream_request(generate_url, req["payload"], req_id)
+                    result["kind"]   = req["kind"]
+                    result["length"] = length
+                    result["sat"]    = sat
+                    rows.append(result)
+                    f.write(json.dumps(result) + "\n")
+                    f.flush()
+
+                    status = (f"ttft={result['ttft_s']}s  e2e={result['e2e_s']}s  "
+                              f"hit={result['hit_rate']}  by={result['served_by']}")
+                    if result["pulled_from"]:
+                        status += f"  pull={result['pulled_from']}"
+                    if result["error"]:
+                        status = f"ERROR: {result['error']}"
+                    print(status)
+
+            if load:
+                load.stop()
+
+            print_summary(rows, length, sat)
+            print(f"  Results → {out_path}")
+
+    print(f"\n{'='*60}")
+    print("All cells done.")
 
 
 if __name__ == "__main__":

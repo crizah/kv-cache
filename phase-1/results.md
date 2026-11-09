@@ -3,9 +3,9 @@ we get the saturation point for nodeA on this capacity
 
 - maximum saturation poine (MSP): the highest req rate nodeA can sustain while ttft p95 stays under an SLO and waiting queue doesnt grow (maybe we can have a range for this? but like come on man. lets keep 2s?)
 
-we select a range of prefix lengths (maybe not all the lengths we tested for because i dont want to spend 100 hours) [2k, 8k, 16k, 24k]
+we select a range of prefix lengths (maybe not all the lengths we tested for because i dont want to spend 100 hours) [2k, 8k, 16k]
 
-and a range of saturations points = [50, 75, 100, 125] percent of MSP (we can tweak these numbers)
+and a range of saturations points = [50, 80, 100] percent of MSP (we can tweak these numbers)
 and we measure TTFT (p50 and p95), TPOT (p50 and p95), end-to-end latency p95, cache hit rate (cached tokens over prompt tokens)
 
 ### setup:
@@ -45,7 +45,7 @@ A load level is a fraction of the MSP used as the offered rate. The load generat
 - the saturation finding script:
 client: nodeA
 
-for every prefix length [2k, 8k, 16k, 24k], flush nodeA between each run
+for every prefix length [2k, 8k, 16k], flush nodeA between each run
 0. Prepare the L cached documents (store this, we will resuse this guy and this stays on a shared folder, so all containers can read it. dont worry about that, ill mount appropriately)
 1. Prepare A. Send each of the L cached documents once, so they’re in its cache.
 2. Use realistic traffic. Each request reuses one of those documents, adds a fresh short suffix, and asks for 256 output tokens. This matches the background load you’ll use in the experiment.

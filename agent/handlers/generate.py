@@ -14,13 +14,14 @@ def handle_generate(req_handler, cfg: AgentConfig, nixl_backend) -> None:
     length = int(req_handler.headers.get("Content-Length", 0))
     body = req_handler.rfile.read(length) if length else b""
 
+    nixl_backend.nixl_svc.set_active_peer(None, None)
     peer_id = req_handler.headers.get("X-Kv-Source")
     if peer_id:
         peer = next((p for p in cfg.peers if p.id == peer_id), None)
         if peer is None:
             req_handler.send_error(400, f"unknown peer id: {peer_id}")
             return
-        nixl_backend.set_active_peer(peer_id, peer.http)
+        nixl_backend.nixl_svc.set_active_peer(peer_id, peer.http)
         logger.info(f"{TAG} pull requested from peer {peer_id}")
 
     forward_headers = {
