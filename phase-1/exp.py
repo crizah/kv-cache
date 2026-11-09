@@ -324,6 +324,8 @@ def main():
             # flush both nodes then warm A fresh for this cell
             flush_nodes(cfg)
             warm_node_a(sglang_url, cell_docs)
+            print("  Waiting 5s for KV events to propagate…")
+            time.sleep(5)
 
             # build request list
             reqs = []
