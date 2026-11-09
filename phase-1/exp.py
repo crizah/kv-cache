@@ -79,7 +79,7 @@ def flush_nodes(cfg: dict):
     import urllib.request
     for url in all_sglang_urls(cfg):
         req = urllib.request.Request(
-            f"{url}/flush_cache", data=b"",
+            f"{url}/flush_cache", data=b"{}",
             headers={"Content-Type": "application/json"}, method="POST",
         )
         try:
@@ -387,6 +387,7 @@ def main():
 
             if load:
                 load.stop()
+                time.sleep(5)  # let A drain before the next flush
 
             print_summary(rows, length, sat)
             print(f"  Results → {out_path}")

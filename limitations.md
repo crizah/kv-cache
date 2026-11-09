@@ -5,3 +5,5 @@
 - context.Cancel() equivalent on the python agent
 - not having an eviction policy for batch_Set_v1 is also a correctness issue, our cache can be stale, give gardbage or even wrong values when overwritten. all fixable with an eviction policy, but we aint doing that rn
 - the numbers for the "golden number" we got was over local host network transfer and a relatively smaller model and also coupled to the hardware we ran it on
+- this golden number of 5k derived from 0sat 10gbps transfer
+so with ANY saturation levels, <5k prefix, recompute is always faster
