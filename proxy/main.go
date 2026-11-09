@@ -44,13 +44,13 @@ func main() {
 	}
 	go routeTable.Listen(ctx)
 
-	// health table, kept up to date in the background by the nodes' load publisher
-	healthTable := health.NewHealthTable(nodes, cfg.healthConfig())
-	go healthTable.CheckHealth(ctx)
-
 	// usage table, polled every 5s from each node's /metrics endpoint
 	usageTable := usage.NewUsageTable(nodes)
 	usageTable.Poll(ctx)
+
+	// health table, kept up to date in the background by the nodes' load publisher
+	healthTable := health.NewHealthTable(nodes, cfg.healthConfig())
+	go healthTable.CheckHealth(ctx)
 
 	h := handlers.NewHandler(
 		cfg.requestServiceConfig(),

@@ -47,11 +47,14 @@ func (s Status) String() string {
 // is older than this is treated as unhealthy when read.
 const staleAfter = 5 * time.Minute
 
-// Config holds the knobs for the load score: score = running + weight*waiting.
-// A node whose score is above LoadedThreshold is marked StatusLoaded.
+// Config holds the knobs for the load score.
+// A node is marked StatusLoaded when EITHER:
+//   - running + WaitingWeight×waiting > LoadedThreshold  (catches short prefixes with many batched reqs)
+//   - in-flight tokens >= TokenLoadedThreshold           (catches long prefixes where few reqs dominate)
 type Config struct {
-	WaitingWeight   float64
-	LoadedThreshold float64
+	WaitingWeight         float64
+	LoadedThreshold       float64
+	TokenLoadedThreshold  int64
 }
 
 func loadScore(running, waiting int64, waitingWeight float64) float64 {
@@ -63,7 +66,8 @@ type HealthTable struct {
 	table           map[string]*NodeInfo
 	nodes           []node.Node
 	waitingWeight   float64
-	loadedThreshold float64
+	loadedThreshold      float64
+	tokenLoadedThreshold int64
 }
 
 type NodeInfo struct {
@@ -89,10 +93,11 @@ func NewHealthTable(nodes []node.Node, cfg Config) *HealthTable {
 		t[n.ID] = &NodeInfo{Node: n, Status: StatusUnhealthy}
 	}
 	return &HealthTable{
-		table:           t,
-		nodes:           nodes,
-		waitingWeight:   cfg.WaitingWeight,
-		loadedThreshold: cfg.LoadedThreshold,
+		table:                t,
+		nodes:                nodes,
+		waitingWeight:        cfg.WaitingWeight,
+		loadedThreshold:      cfg.LoadedThreshold,
+		tokenLoadedThreshold: cfg.TokenLoadedThreshold,
 	}
 }
 
@@ -152,6 +157,9 @@ func (table *HealthTable) record(node string, stat *LoadStat) {
 	info.MaxTokens = stat.MaxTokens
 	info.Status = StatusHealthy
 	if loadScore(stat.RunningReqs, stat.WaitingReqs, table.waitingWeight) > table.loadedThreshold {
+		info.Status = StatusLoaded
+	}
+	if info.Status == StatusHealthy && table.tokenLoadedThreshold > 0 && stat.Tokens >= table.tokenLoadedThreshold {
 		info.Status = StatusLoaded
 	}
 	info.timestamp = time.Now()

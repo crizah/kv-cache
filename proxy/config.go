@@ -35,8 +35,9 @@ func (n NodeConfig) toNode() (node.Node, error) {
 }
 
 type HealthConfig struct {
-	WaitingWeight   float64 `json:"waiting_weight"`
-	LoadedThreshold float64 `json:"loaded_threshold"`
+	WaitingWeight        float64 `json:"waiting_weight"`
+	LoadedThreshold      float64 `json:"loaded_threshold"`
+	TokenLoadedThreshold int64   `json:"token_loaded_threshold"` // in-flight tokens above which a node is loaded; 0 = disabled
 }
 
 // ModelConfig holds the settings that depend on the model. Page size and
@@ -132,8 +133,9 @@ func (cfg *Config) nodes() ([]node.Node, error) {
 
 func (cfg *Config) healthConfig() health.Config {
 	return health.Config{
-		WaitingWeight:   cfg.Health.WaitingWeight,
-		LoadedThreshold: cfg.Health.LoadedThreshold,
+		WaitingWeight:        cfg.Health.WaitingWeight,
+		LoadedThreshold:      cfg.Health.LoadedThreshold,
+		TokenLoadedThreshold: cfg.Health.TokenLoadedThreshold,
 	}
 }
 

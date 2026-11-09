@@ -30,7 +30,8 @@
   ],
   "health": {
     "waiting_weight": 2.0,
-    "loaded_threshold": 8
+    "loaded_threshold": 8,
+    "token_loaded_threshold": 20000
   },
   "request_timeout_sec": 120,
   "pull_timeout_sec": 300
