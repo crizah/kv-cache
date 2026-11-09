@@ -45,7 +45,8 @@ func NewRouteTableService(nodes []node.Node) *RouteTable {
 	seq := make(map[string]uint64)
 	return &RouteTable{routeMapCPU: &cpuMap{table: c},
 		routeMapGPU: &gpuMap{table: g},
-		Nodes:       nodes, seqMap: seq}
+		Nodes:       nodes, seqMap: seq,
+		RRMap: &roundRobinMap{}}
 }
 
 func (table *RouteTable) writeCache(batch *KVEventBatch) {

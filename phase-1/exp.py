@@ -74,10 +74,27 @@ def all_sglang_urls(cfg: dict) -> list[str]:
     return [f"http://{n['ip']}:{n['sglang']}" for n in cfg["nodes"]]
 
 
+def _wait_drained(url: str, timeout: int = 60):
+    """Poll /get_server_info until running==0 or timeout."""
+    import urllib.request, json as _json
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(f"{url}/get_server_info", timeout=5) as r:
+                info = _json.loads(r.read())
+            if info.get("num_running_reqs", 0) == 0:
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+    print(f"  [warn] {url} still busy after {timeout}s drain, flushing anyway")
+
+
 def flush_nodes(cfg: dict):
-    """Flush the KV cache on all nodes and wait for BlockRemoved events to propagate."""
+    """Wait for each node to drain, flush its KV cache, then let events propagate."""
     import urllib.request
     for url in all_sglang_urls(cfg):
+        _wait_drained(url)
         req = urllib.request.Request(
             f"{url}/flush_cache", data=b"{}",
             headers={"Content-Type": "application/json"}, method="POST",
@@ -387,7 +404,6 @@ def main():
 
             if load:
                 load.stop()
-                time.sleep(5)  # let A drain before the next flush
 
             print_summary(rows, length, sat)
             print(f"  Results → {out_path}")

@@ -7,3 +7,6 @@
 - the numbers for the "golden number" we got was over local host network transfer and a relatively smaller model and also coupled to the hardware we ran it on
 - this golden number of 5k derived from 0sat 10gbps transfer
 so with ANY saturation levels, <5k prefix, recompute is always faster
+current design of the experiments dont tell us "at a saturation 80%, is giving to A slower than pulling into B"
+
+the calinerations arent the best and there is an inherent difference between our load adder and our proxy load determiner
