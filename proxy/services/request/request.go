@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 
@@ -279,21 +280,20 @@ func (req *RequestService) hasher(ctx context.Context, tokens []uint32, priorDig
 		nodes := req.routeTable.ReadCache(ctx, bigInd)
 
 		if len(nodes) == 0 {
-			// we didnt find any servers that have this guy for this digest
 			if !flag {
-				// we never even found one
+				slog.Info("hasher miss", "pages_checked", p+1, "total_pages", numPages, "first_hash", bigInd)
 				return &hasherRes{exists: false}, nil
 			}
-			// otherwise, we had found one, so we return the previosuly set nodes
+			slog.Info("hasher match", "matched_pages", len(hashes), "total_pages", numPages, "nodes", N)
 			return &hasherRes{exists: true, nodes: N, hashes: hashes, matched: len(hashes)}, nil
 		}
 
-		// otherwise, cache hit, update vars
 		flag = true
 		N = nodes
 		hashes = append(hashes, bigInd)
 	}
 
+	slog.Info("hasher match", "matched_pages", len(hashes), "total_pages", numPages, "nodes", N)
 	return &hasherRes{exists: true, nodes: N, hashes: hashes, matched: len(hashes)}, nil
 }
 

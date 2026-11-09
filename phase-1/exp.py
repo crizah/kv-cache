@@ -70,6 +70,27 @@ def node_sglang_url(cfg: dict, host_override: str | None = None) -> str:
     return f"http://{host}:{n['sglang']}"
 
 
+def all_sglang_urls(cfg: dict) -> list[str]:
+    return [f"http://{n['ip']}:{n['sglang']}" for n in cfg["nodes"]]
+
+
+def flush_nodes(cfg: dict):
+    """Flush the KV cache on all nodes and wait for BlockRemoved events to propagate."""
+    import urllib.request
+    for url in all_sglang_urls(cfg):
+        req = urllib.request.Request(
+            f"{url}/flush_cache", data=b"",
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                r.read()
+            print(f"  Flushed {url}")
+        except Exception as e:
+            print(f"  [warn] flush {url}: {e}")
+    time.sleep(3)  # let BlockRemoved events reach the proxy
+
+
 def warm_node_a(sglang_url: str, docs: list[dict]):
     """Send each cached doc directly to A's SGLang to populate its KV cache."""
     import urllib.request
@@ -217,7 +238,7 @@ class LoadProcess:
             "--length",     str(length),
             "--rate",       f"{rate:.6f}",
             "--l-docs-dir", l_docs_dir,
-            "--doc-range",  "15:25",
+            "--doc-range",  f"0:{CACHED_REQUESTS}",
             "--gaps-log",   gaps_log,
             "--seed",       str(seed),
             "--host",       host,
@@ -300,7 +321,8 @@ def main():
             # fixed deterministic cached docs (same across all sat levels for this length)
             cell_docs = docs[:CACHED_REQUESTS]
 
-            # warm nodeA with the cached docs before starting the experiment
+            # flush both nodes then warm A fresh for this cell
+            flush_nodes(cfg)
             warm_node_a(sglang_url, cell_docs)
 
             # build request list

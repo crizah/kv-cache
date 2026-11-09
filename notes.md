@@ -77,3 +77,17 @@ for now, i am going with the 2 source of truth design cos() its cleaner. but we 
 - also, make sure our routing algo takes into account the current load + the queued load
 - so next we just have to make an interface out of the routing logic to have round robin and cacheroute
 - and also, we need to add the json tokenisers for our model
+
+
+From the analysis table — at sat=80, the minimum tokens in-flight across all lengths was 2K at 19,071. So 20,000 sits just above that, ensuring 2K at
+  sat=80 doesn't trigger via the token check (it's caught by the score check instead), while 8K/16K/24K at sat=80 all exceed it.
+
+  But that derivation was based on estimated service times (2K→5s, 8K→7s, 16K→10s, 24K→13s) which were rough guesses. To recalibrate for a different
+  machine:
+
+  1. Run at sat=80 for each length with no proxy (direct to SGLang)
+  2. Observe num_tokens in the proxy health logs at steady state
+  3. Set token_loaded_threshold to the minimum observed value across all lengths at sat=80, minus a small margin
+
+  The number is empirical and machine-specific. The service times I used were estimates — the actual values depend on your GPU, model, and batch
+  behavior.
