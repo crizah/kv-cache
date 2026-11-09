@@ -305,6 +305,32 @@ func (table *RouteTable) LLRouter() {
 
 }
 
+// decodeArrayEvent maps positional array fields to a named map.
+// SGLang uses msgspec array_like=True + tag=True, so events arrive as
+// [typename, field0, field1, ...] rather than {"type": typename, ...}.
+func decodeArrayEvent(typ string, fields []any) map[string]any {
+	m := make(map[string]any, len(fields)+1)
+	switch typ {
+	case "BlockStored":
+		// [block_hashes, parent_block_hash, token_ids, block_size, lora_id, medium?, ...]
+		if len(fields) > 0 {
+			m["block_hashes"] = fields[0]
+		}
+		if len(fields) > 5 {
+			m["medium"] = fields[5]
+		}
+	case "BlockRemoved":
+		// [block_hashes, medium?]
+		if len(fields) > 0 {
+			m["block_hashes"] = fields[0]
+		}
+		if len(fields) > 1 {
+			m["medium"] = fields[1]
+		}
+	}
+	return m
+}
+
 func decodeBatch(seq uint64, payload []byte) *KVEventBatch {
 	// NOTE: keep array_like=True on the python side
 	// array [ts:float64, events:[]any, attn_dp_rank:int|nil]
@@ -332,12 +358,13 @@ func decodeBatch(seq uint64, payload []byte) *KVEventBatch {
 	rawEvents, _ := raw[1].([]any)
 	events := make([]rawKVEvent, 0, len(rawEvents))
 	for _, re := range rawEvents {
-		m, ok := re.(map[string]any)
-		if !ok {
+		// SGLang encodes events as tagged arrays: [tag, field0, field1, ...]
+		arr, ok := re.([]any)
+		if !ok || len(arr) < 1 {
 			continue
 		}
-		typ, _ := m["type"].(string)
-		delete(m, "type")
+		typ, _ := arr[0].(string)
+		m := decodeArrayEvent(typ, arr[1:])
 		events = append(events, rawKVEvent{Type: typ, Fields: m})
 	}
 
