@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -59,12 +60,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var req generateReq
 	if err := json.Unmarshal(body, &req); err != nil || req.Text == "" {
+		slog.Error("handler bad request", "error", err)
 		http.Error(w, "invalid request: missing text field", http.StatusBadRequest)
 		return
 	}
 
+	slog.Info("handler request", "text_len", len(req.Text))
+
 	svc, err := services.NewRequestService(h.reqCfg, req.Text, h.nodes, h.routeTable, h.healthTable)
 	if err != nil {
+		slog.Error("handler service init failed", "error", err)
 		http.Error(w, "service init: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -74,9 +79,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	res, err := svc.HandleReq(reqCtx)
 	if err != nil {
+		slog.Error("handler routing failed", "error", err)
 		http.Error(w, "routing: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+	slog.Info("handler routing", "dest", res.NodeD.ID, "pull_from", res.NodeP.ID)
 
 	kvSource := ""
 	if res.NodeP.ID != "" {
