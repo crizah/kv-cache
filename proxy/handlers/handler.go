@@ -53,6 +53,7 @@ type fwdResult struct {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		slog.Error("handler read body failed", "error", err)
 		http.Error(w, "read body", http.StatusBadRequest)
 		return
 	}
