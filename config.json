@@ -25,8 +25,8 @@
   },
   "listen_addr": ":8080",
   "nodes": [
-    { "id": "A", "ip": "nodeA", "http": "8765", "kv_events": "5557", "load": "6000", "sglang": "8001"},
-    { "id": "B", "ip": "nodeB", "http": "8766", "kv_events": "5559", "load": "6001", "sglang": "8001"}
+    { "id": "A", "ip": "172.18.0.2", "http": "8765", "kv_events": "5557", "load": "6000", "sglang": "8001"},
+    { "id": "B", "ip": "172.18.0.3", "http": "8766", "kv_events": "5559", "load": "6001", "sglang": "8001"}
   ],
   "health": {
     "waiting_weight": 2.0,

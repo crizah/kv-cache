@@ -383,7 +383,7 @@ Formula: loaded = (Tokens >= 20,000) OR (running + 2×waiting >= 8)
   │ 24K    │ 0.15 │ 1.95       │ 47,923 │ 1.95  │ ✓ loaded (tokens) │
   └────────┴──────┴────────────┴────────┴───────┴───────────────────┘
 
-  loaded = (Tokens >= token_loaded_threshold)
+  loaded = (Tokens >= token_loaded_threshold) # we will need to derive a formula for this value based on the max token thing, the other 2 can stay constants guys
              OR
              (running + waiting_weight × waiting > loaded_threshold)
   
