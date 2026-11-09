@@ -105,10 +105,10 @@ func loadConfig(path string) (*Config, error) {
 		cfg.RequestTimeoutSec = 30
 	}
 	switch cfg.Router {
-	case "kv", "rr", "cacheRoute", "ll":
+	case "kv", "rr", "cacheRoute", "ll", "cache-aware", "cache-load-aware":
 		// valid
 	default:
-		return nil, fmt.Errorf("router must be one of kv, rr, cacheRoute, ll; got %q", cfg.Router)
+		return nil, fmt.Errorf("router must be one of kv, rr, cacheRoute, ll, cache-aware, cache-load-aware; got %q", cfg.Router)
 	}
 
 	return &cfg, nil
