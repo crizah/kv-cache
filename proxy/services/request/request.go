@@ -125,6 +125,10 @@ func (req *RequestService) HandleReq(ctx context.Context) (*node.RouterRes, erro
 		router = NewCacheRouter(req)
 	case "ll":
 		router = NewLLRouter(req)
+	case "cache-aware":
+		router = NewCacheAwareRouter(req)
+	case "cache-load-aware":
+		router = NewCacheLoadAwareRouter(req)
 	}
 
 	node := router.router(ctx, N)

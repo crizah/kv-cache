@@ -30,6 +30,19 @@ type CacheRouter struct {
 	tMax               float64 // p99 TTFT from calibration window, seconds
 }
 
+// CacheAwareRouter always routes to the node that holds the cache, regardless
+// of its load. On a miss it falls back to the least-loaded node.
+type CacheAwareRouter struct {
+	req *RequestService
+}
+
+// CacheLoadAwareRouter uses the same KV-aware logic as KvRouter but never
+// triggers a pull: when the cache holder is loaded, the request goes to the
+// healthiest node and recomputes instead.
+type CacheLoadAwareRouter struct {
+	req *RequestService
+}
+
 func NewKvRouter(req *RequestService) *KvRouter {
 	return &KvRouter{req: req}
 }
@@ -44,6 +57,14 @@ func NewCacheRouter(req *RequestService) *CacheRouter {
 }
 func NewLLRouter(req *RequestService) *LLRouter {
 	return &LLRouter{req: req}
+}
+
+func NewCacheAwareRouter(req *RequestService) *CacheAwareRouter {
+	return &CacheAwareRouter{req: req}
+}
+
+func NewCacheLoadAwareRouter(req *RequestService) *CacheLoadAwareRouter {
+	return &CacheLoadAwareRouter{req: req}
 }
 
 func (r *KvRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
@@ -147,6 +168,60 @@ func (r *CacheRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes 
 func (r *LLRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
 	// the least loaded node
 	return r.req.healthTable.LLRoute()
+}
+
+func (r *CacheAwareRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
+	// always send to the cache holder regardless of load; miss → least loaded
+	if R.exists {
+		for holderID := range R.nodes {
+			nd, ok := r.req.nodeMap[holderID]
+			if !ok {
+				continue
+			}
+			return &node.RouterRes{NodeD: nd}
+		}
+	}
+	return r.req.healthTable.LLRoute()
+}
+
+func (r *CacheLoadAwareRouter) router(ctx context.Context, R *hasherRes) *node.RouterRes {
+	// same as KvRouter but never pulls: loaded cache holder → recompute on healthiest node
+	available := r.req.healthTable.GetHealthyNodes(ctx)
+	if len(available.SortedNodes) == 0 {
+		return nil
+	}
+
+	var dest node.Node
+	for _, n := range available.SortedNodes {
+		if n.Status == health.StatusHealthy {
+			dest = n.Node
+			break
+		}
+	}
+	if dest.ID == "" {
+		return nil
+	}
+
+	if !R.exists {
+		return &node.RouterRes{NodeD: dest}
+	}
+
+	for holderID := range R.nodes {
+		status, ok := available.NodesMap[holderID]
+		if !ok {
+			continue
+		}
+		nd, ok := r.req.nodeMap[holderID]
+		if !ok {
+			continue
+		}
+		if status == health.StatusHealthy {
+			return &node.RouterRes{NodeD: nd}
+		}
+		// loaded holder: fall through to recompute on dest, no pull
+		_ = nd
+	}
+	return &node.RouterRes{NodeD: dest}
 }
 
 //
