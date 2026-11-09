@@ -70,14 +70,13 @@ def node_sglang_url(cfg: dict, host_override: str | None = None) -> str:
     return f"http://{host}:{n['sglang']}"
 
 
-def warm_node_a(sglang_url: str, docs: list[dict], rng: random.Random):
+def warm_node_a(sglang_url: str, docs: list[dict]):
     """Send each cached doc directly to A's SGLang to populate its KV cache."""
     import urllib.request
     print(f"  Warming nodeA with {len(docs)} docs…", end="", flush=True)
     for doc in docs:
-        suffix = rand_ids(rng, SUFFIX_TOKENS)
         payload = json.dumps({
-            "input_ids": doc["ids"] + suffix,
+            "text": doc["text"],
             "sampling_params": {"temperature": 0, "max_new_tokens": 1},
             "stream": False,
         }).encode()
@@ -302,7 +301,7 @@ def main():
             cell_docs = docs[:CACHED_REQUESTS]
 
             # warm nodeA with the cached docs before starting the experiment
-            warm_node_a(sglang_url, cell_docs, rng)
+            warm_node_a(sglang_url, cell_docs)
 
             # build request list
             reqs = []
