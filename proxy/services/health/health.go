@@ -45,7 +45,7 @@ func (s Status) String() string {
 
 // staleAfter is how long a table entry stays valid. A node whose last update
 // is older than this is treated as unhealthy when read.
-const staleAfter = 5 * time.Minute
+const staleAfter = 30 * time.Second
 
 // Config holds the knobs for the load score.
 // A node is marked StatusLoaded when EITHER:

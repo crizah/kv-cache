@@ -92,6 +92,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ch := make(chan fwdResult, 1)
 	targetURL := res.NodeD.AgentURL + r.URL.RequestURI()
+	slog.Info("handler forwarding", "url", targetURL, "kv_source", kvSource)
 	go func() {
 		ch <- forwardReq(reqCtx, h.client, r.Method, targetURL, r.Header, body, kvSource)
 	}()
@@ -99,11 +100,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	select {
 	case result := <-ch:
 		if result.err != nil {
-			// TODO: retry with other nodes or buffer here
+			slog.Error("handler forward failed", "url", targetURL, "error", result.err)
 			http.Error(w, "forward failed: "+result.err.Error(), http.StatusBadGateway)
 			return
 		}
 		defer result.resp.Body.Close()
+		if result.resp.StatusCode >= 400 {
+			slog.Error("handler upstream error", "url", targetURL, "status", result.resp.StatusCode)
+		}
 		for k, vv := range result.resp.Header {
 			for _, v := range vv {
 				w.Header().Add(k, v)
@@ -119,7 +123,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(result.resp.StatusCode)
 		io.Copy(w, result.resp.Body) //nolint:errcheck
 	case <-reqCtx.Done():
-		// TODO: retry with other nodes or buffer here
+		slog.Error("handler timeout", "url", targetURL)
 		http.Error(w, "request timeout or cancelled", http.StatusGatewayTimeout)
 	}
 }
