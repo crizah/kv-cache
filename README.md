@@ -393,5 +393,5 @@ Formula: loaded = (Tokens >= 20,000) OR (running + 2×waiting >= 8)
              (running + 2.0 × waiting > 8)
 
 ```
-
+CGO_LDFLAGS="-L./binary" go build -o binary/proxy . 2>&1
 CGO_LDFLAGS="-L./binary" LD_LIBRARY_PATH=./binary CONFIG_PATH=../config.json ./binary/proxy

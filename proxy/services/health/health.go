@@ -151,18 +151,24 @@ func (table *HealthTable) record(node string, stat *LoadStat) {
 	if !ok {
 		return // unknown node, shouldnt happen
 	}
+	prev := info.Status
 	info.RunningReqs = stat.RunningReqs
 	info.WaitingReqs = stat.WaitingReqs
 	info.Tokens = stat.Tokens
 	info.MaxTokens = stat.MaxTokens
 	info.Status = StatusHealthy
-	if loadScore(stat.RunningReqs, stat.WaitingReqs, table.waitingWeight) > table.loadedThreshold {
+	score := loadScore(stat.RunningReqs, stat.WaitingReqs, table.waitingWeight)
+	if score > table.loadedThreshold {
 		info.Status = StatusLoaded
 	}
 	if info.Status == StatusHealthy && table.tokenLoadedThreshold > 0 && stat.Tokens >= table.tokenLoadedThreshold {
 		info.Status = StatusLoaded
 	}
 	info.timestamp = time.Now()
+	slog.Info("health", "node", node, "status", info.Status,
+		"running", stat.RunningReqs, "waiting", stat.WaitingReqs,
+		"tokens", stat.Tokens, "score", score,
+		"changed", prev != info.Status)
 }
 
 func (table *HealthTable) LLRoute() *node.RouterRes {

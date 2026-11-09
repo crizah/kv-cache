@@ -86,6 +86,7 @@ func (table *RouteTable) writeCache(batch *KVEventBatch) {
 				// DISK / EXTERNAL / None are not tracked
 				continue
 			}
+			slog.Info("BlockStored", "node", batch.nodeIP, "medium", medium, "blocks", len(hashes))
 		case "BlockRemoved":
 			// 	{
 			// 	  "type": "BlockRemoved",
@@ -105,10 +106,12 @@ func (table *RouteTable) writeCache(batch *KVEventBatch) {
 				table.routeMapGPU.mx.Lock()
 				removeNodeFromHashes(table.routeMapGPU.table, hashes, batch.nodeIP)
 				table.routeMapGPU.mx.Unlock()
+				slog.Info("BlockRemoved", "node", batch.nodeIP, "medium", "GPU", "blocks", len(hashes))
 			case "CPU_PINNED":
 				table.routeMapCPU.mx.Lock()
 				removeNodeFromHashes(table.routeMapCPU.table, hashes, batch.nodeIP)
 				table.routeMapCPU.mx.Unlock()
+				slog.Info("BlockRemoved", "node", batch.nodeIP, "medium", "CPU_PINNED", "blocks", len(hashes))
 			default:
 				continue
 			}
@@ -243,6 +246,7 @@ func (table *RouteTable) Listen(ctx context.Context) {
 				slog.Info("KV event missed", "node", event.nodeIP, "missed_seq", prevSeq+1)
 			}
 			table.seqMap[event.nodeIP] = event.seq
+			slog.Info("kv event", "node", event.nodeIP, "seq", event.seq, "events", len(event.events))
 			table.writeCache(event)
 		case <-ctx.Done():
 			return
