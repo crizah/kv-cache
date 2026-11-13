@@ -21,6 +21,14 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
+ROUTER_LABELS = {
+    "rr":                 "RR",
+    "ll":                 "LL",
+    "nixl":               "KVIP",
+    "cache-only":         "CA",
+    "cache-load-no-pull": "CLA",
+}
+
 COLORS = [
     "#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
     "#42d4f4", "#f032e6", "#bfef45", "#fabed4", "#469990",
@@ -47,7 +55,7 @@ def load_results(results_root: Path) -> dict:
     for router_dir in sorted(results_root.iterdir()):
         if not router_dir.is_dir():
             continue
-        router = router_dir.name
+        router = ROUTER_LABELS.get(router_dir.name, router_dir.name)
         for f in router_dir.glob("exp_*.jsonl"):
             with open(f) as fh:
                 for line in fh:
@@ -63,7 +71,10 @@ def load_results(results_root: Path) -> dict:
 
 
 def median_or_none(vals):
-    return statistics.median(vals) if vals else None
+    if not vals:
+        return None
+    s = sorted(vals)
+    return s[int(0.95 * len(s))]
 
 
 def plot_sat(data: dict, sat: int, lengths: list[int], out_path: Path):
@@ -75,6 +86,8 @@ def plot_sat(data: dict, sat: int, lengths: list[int], out_path: Path):
     for router in routers:
         sat_data = data[router].get(sat, {})
         for kind in ("cached", "new"):
+            if kind == "new" and router != "KVIP":
+                continue
             ys = []
             xs = []
             for length in lengths:
@@ -85,7 +98,7 @@ def plot_sat(data: dict, sat: int, lengths: list[int], out_path: Path):
                     ys.append(m)
             if not xs:
                 continue
-            label = f"{router}_{kind}"
+            label = "Unc" if kind == "new" else router
             ax.plot(
                 xs, ys,
                 color=color_map[router],
@@ -96,9 +109,9 @@ def plot_sat(data: dict, sat: int, lengths: list[int], out_path: Path):
                 label=label,
             )
 
-    ax.set_title(f"E2E Latency — sat={sat}%", fontsize=14, pad=12)
+    ax.set_title(f"E2E Latency (p95) — sat={sat}%", fontsize=14, pad=12)
     ax.set_xlabel("Prefix length (tokens)", fontsize=11)
-    ax.set_ylabel("Median E2E (s)", fontsize=11)
+    ax.set_ylabel("p95 E2E (s)", fontsize=11)
     ax.set_xticks(lengths)
     ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
 
@@ -175,6 +188,8 @@ def main():
         for router in routers:
             sat_data = sat_data_all[router].get(sat, {})
             for kind in ("cached", "new"):
+                if kind == "new" and router != "KVIP":
+                    continue
                 ys, xs = [], []
                 for length in all_lengths:
                     vals = sat_data.get(length, {}).get(kind, [])
@@ -184,6 +199,7 @@ def main():
                         ys.append(m)
                 if not xs:
                     continue
+                label = "Unc" if kind == "new" else router
                 ax.plot(
                     xs, ys,
                     color=color_map[router],
@@ -191,11 +207,11 @@ def main():
                     marker=MARKERS[kind],
                     linewidth=1.8,
                     markersize=6,
-                    label=f"{router}_{kind}",
+                    label=label,
                 )
         ax.set_title(f"sat={sat}%", fontsize=13, pad=10)
         ax.set_xlabel("Prefix length (tokens)", fontsize=10)
-        ax.set_ylabel("Median E2E (s)", fontsize=10)
+        ax.set_ylabel("p95 E2E (s)", fontsize=10)
         ax.set_xticks(all_lengths)
         ax.xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
         ymin, ymax = ax.get_ylim()
